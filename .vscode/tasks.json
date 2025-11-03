@@ -1,0 +1,68 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Start Dev Stack",
+      "type": "shell",
+      "command": "docker compose -f infra/docker/docker-compose.dev.yml up -d && pnpm dev",
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      }
+    },
+    {
+      "label": "Start Web",
+      "type": "shell",
+      "command": "pnpm --filter @speechwriter/web dev",
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "group": "build"
+    },
+    {
+      "label": "Start API",
+      "type": "shell",
+      "command": "pnpm --filter @speechwriter/api dev",
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "group": "build"
+    },
+    {
+      "label": "Start Worker",
+      "type": "shell",
+      "command": "pnpm --filter @speechwriter/worker dev",
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "group": "build"
+    },
+    {
+      "label": "Run Tests",
+      "type": "shell",
+      "command": "pnpm test",
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "group": "test"
+    }
+  ]
+}
+
