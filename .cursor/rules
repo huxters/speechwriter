@@ -1,0 +1,35 @@
+version: 1
+
+goals:
+  - Maintain a secure, privacy-controlled TypeScript monorepo.
+  - Keep architecture consistent with the Speechwriter scaffold (apps + packages).
+  - Enforce data protection: all LLM calls go through redaction layer.
+
+stack:
+  - Next.js
+  - Fastify
+  - BullMQ
+  - TypeScript (strict)
+  - PostgreSQL + Redis
+  - pnpm monorepo
+  - ESLint + Prettier
+
+non_negotiables:
+  - Do not include API or LLM keys in client-side code.
+  - All LLM interactions must pass through `packages/redaction`.
+  - All database queries must include `org_id` scoping.
+  - Sensitive profile data must be encrypted or anonymised.
+  - No business logic inside UI components.
+
+tests_required:
+  - Unit tests for policies and redaction packages.
+  - Health-check endpoint for each app (web/api/worker).
+
+files_to_respect:
+  - ARCHITECTURE.md
+  - .vscode/tasks.json
+  - .devcontainer/devcontainer.json
+
+review_prompts:
+  - "Does this change respect privacy and data boundaries?"
+  - "Is this consistent with the defined monorepo architecture?"
