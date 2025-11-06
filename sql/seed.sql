@@ -15,3 +15,4 @@ create policy "insert own" on profiles for insert with check (auth.uid() = id);
 create policy "update own" on profiles for update using (auth.uid() = id);
 
 
+

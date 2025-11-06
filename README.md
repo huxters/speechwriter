@@ -134,3 +134,4 @@ Subsequent logins will update the existing profile if needed (via upsert).
 - Magic link authentication is handled securely by Supabase
 
 
+
