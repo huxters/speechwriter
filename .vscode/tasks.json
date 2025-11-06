@@ -1,10 +1,12 @@
 {
+  // Simplified task configuration for Cursor Dev Container
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "Start Dev Stack",
+      "label": "Start Web",
       "type": "shell",
-      "command": "docker compose -f infra/docker-compose.dev.yml up -d && pnpm dev",
+      "command": "pnpm start:web",
+      "detail": "Launches the Speechwriter web app inside the Dev Container.",
       "isBackground": true,
       "problemMatcher": [],
       "presentation": {
@@ -17,10 +19,10 @@
       }
     },
     {
-      "label": "Start Web",
+      "label": "Stop Server",
       "type": "shell",
-      "command": "pnpm --filter @speechwriter/web dev",
-      "isBackground": true,
+      "command": "pnpm stop",
+      "detail": "Stops the running Next.js development server.",
       "problemMatcher": [],
       "presentation": {
         "reveal": "always",
@@ -29,33 +31,22 @@
       "group": "build"
     },
     {
-      "label": "Start API",
+      "label": "Lint",
       "type": "shell",
-      "command": "pnpm --filter @speechwriter/api dev",
-      "isBackground": true,
+      "command": "pnpm lint",
+      "detail": "Runs ESLint checks across all workspace packages.",
       "problemMatcher": [],
       "presentation": {
         "reveal": "always",
         "panel": "dedicated"
       },
-      "group": "build"
+      "group": "test"
     },
     {
-      "label": "Start Worker",
+      "label": "Typecheck",
       "type": "shell",
-      "command": "pnpm --filter @speechwriter/worker dev",
-      "isBackground": true,
-      "problemMatcher": [],
-      "presentation": {
-        "reveal": "always",
-        "panel": "dedicated"
-      },
-      "group": "build"
-    },
-    {
-      "label": "Run Tests",
-      "type": "shell",
-      "command": "pnpm test",
+      "command": "pnpm typecheck",
+      "detail": "Runs TypeScript type checking for all workspace packages.",
       "problemMatcher": [],
       "presentation": {
         "reveal": "always",
@@ -65,4 +56,3 @@
     }
   ]
 }
-

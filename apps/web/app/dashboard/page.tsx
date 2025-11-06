@@ -1,69 +1,54 @@
-import { getSession, createClient } from '@/lib/supabase/server';
+import Link from 'next/link';
 import { redirect } from 'next/navigation';
-
-async function signOut() {
-  'use server';
-  const supabase = await createClient();
-  await supabase.auth.signOut();
-  redirect('/login');
-}
+import { createClient } from '@/lib/supabase/server';
 
 export default async function DashboardPage(): Promise<JSX.Element> {
-  const session = await getSession();
-
-  if (!session) {
-    return (
-      <html>
-        <head>
-          <meta httpEquiv="refresh" content="0; url=/login" />
-        </head>
-        <body>
-          <p>Redirecting to login...</p>
-        </body>
-      </html>
-    );
-  }
-
   const supabase = await createClient();
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('role, full_name')
-    .eq('id', session.user.id)
-    .single();
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+
+  if (!session) redirect('/login');
 
   return (
-    <div style={{ padding: '40px', fontFamily: 'system-ui, sans-serif' }}>
-      <h1 style={{ fontSize: '24px', marginBottom: '24px' }}>Dashboard</h1>
-      <div style={{ marginBottom: '16px' }}>
-        <p style={{ marginBottom: '8px' }}>
-          <strong>Email:</strong> {session.user.email}
-        </p>
-        <p style={{ marginBottom: '8px' }}>
-          <strong>Role:</strong> {profile?.role || 'user'}
-        </p>
-        {profile?.full_name && (
-          <p style={{ marginBottom: '8px' }}>
-            <strong>Full Name:</strong> {profile.full_name}
-          </p>
-        )}
-      </div>
-      <form action={signOut}>
-        <button
-          type="submit"
+    <main
+      style={{
+        padding: '2rem',
+        maxWidth: 900,
+        margin: '0 auto',
+        fontFamily: 'system-ui, sans-serif',
+      }}
+    >
+      <h1 style={{ fontSize: 28, marginBottom: 8 }}>Dashboard</h1>
+      <p style={{ color: '#666', marginBottom: 24 }}>Welcome to Speechwriter! You’re signed in.</p>
+
+      <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+        <Link
+          href="/dashboard/generate"
           style={{
-            padding: '8px 16px',
-            fontSize: '14px',
-            backgroundColor: '#cc0000',
-            color: 'white',
-            border: 'none',
-            borderRadius: '4px',
-            cursor: 'pointer',
+            padding: '12px 18px',
+            background: '#111',
+            color: '#fff',
+            borderRadius: 8,
+            textDecoration: 'none',
           }}
         >
-          Sign Out
-        </button>
-      </form>
-    </div>
+          ➕ New Speech (Generate)
+        </Link>
+
+        <Link
+          href="/dashboard/history"
+          style={{
+            padding: '12px 18px',
+            background: '#eee',
+            color: '#111',
+            borderRadius: 8,
+            textDecoration: 'none',
+          }}
+        >
+          📜 View Saved Speeches
+        </Link>
+      </div>
+    </main>
   );
 }
-

@@ -3,12 +3,18 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
+    "//": "---- CORE DEVELOPMENT SCRIPTS ----",
     "dev": "pnpm --filter './apps/*' --parallel dev",
     "build": "pnpm --recursive build",
     "test": "pnpm --recursive test",
     "lint": "pnpm --recursive lint",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
-    "typecheck": "pnpm --recursive typecheck"
+    "typecheck": "pnpm --recursive typecheck",
+    "//": "---- FRIENDLY SHORTCUTS ----",
+    "start:env": "pnpm --filter ./apps/web dev",
+    "start:web": "pnpm --filter ./apps/web dev",
+    "start:api": "pnpm --filter ./apps/api dev",
+    "stop": "pkill -f next || true"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
@@ -18,7 +24,8 @@
     "eslint-config-prettier": "^9.1.0",
     "eslint-plugin-prettier": "^5.1.3",
     "prettier": "^3.2.4",
-    "typescript": "^5.3.3"
+    "typescript": "^5.3.3",
+    "concurrently": "^9.0.0"
   },
   "engines": {
     "node": ">=22.0.0",
