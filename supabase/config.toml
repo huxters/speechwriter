@@ -1,0 +1,54 @@
+# 🧩 Supabase Project Configuration
+# ------------------------------------------------------
+# This file connects your local project folder to your
+# Supabase backend instance.
+#
+# It is shared across MicroFactory products, ensuring
+# consistency when managing migrations and local testing.
+# ------------------------------------------------------
+
+[project]
+# Your Supabase project reference ID (find this in your Supabase dashboard URL)
+# Example: https://supabase.com/dashboard/project/abcd1234 -> project_ref = "abcd1234"
+ref = "your_project_ref_here"
+
+# Database connection string for local development
+# This can be left commented unless you run Supabase locally.
+# db_url = "postgresql://postgres:postgres@localhost:54322/postgres"
+
+# The migrations folder path relative to this config file
+migrations_path = "./migrations"
+
+[api]
+# Controls how the Supabase CLI interacts with API features
+port = 54321
+auto_update = true
+
+[db]
+# Enable SSL for production connections
+ssl = true
+schema = "public"
+shadow = "shadow"
+
+[auth]
+# Default JWT expiration (in seconds)
+jwt_expiry = 3600
+
+# Allow auto-refresh of session tokens
+auto_refresh_token = true
+
+# Define your admin emails (optional)
+admin_emails = ["stephen@example.com"]
+
+[functions]
+# Where edge functions are stored
+# (Optional — used for MicroFactory automation & backend functions)
+path = "../apps/web/supabase/functions"
+
+# Include environment variables for Supabase Edge Functions
+[functions.env]
+OPENAI_API_KEY = "your_openai_key_here"
+SUPABASE_URL = "your_supabase_url_here"
+SUPABASE_ANON_KEY = "your_supabase_anon_key_here"
+
+# End of config.toml

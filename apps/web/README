@@ -1,0 +1,64 @@
+# 🎙️ Speechwriter (Micro-Factory Build)
+
+> “The human soul makes the choice; the machine mind makes the thinking sharper.”
+
+---
+
+## 🧭 Overview
+
+**Speechwriter** is a Micro-Factory product designed to generate high-quality, personalised speeches using structured prompting, multi-stage generation, and integrated text-to-speech output.
+
+This project is being developed as part of the **Micro-Factory system** — a framework for building modular, AI-driven applications with consistent architecture, admin consoles, and secure orchestration layers.
+
+The **goal** of Speechwriter is to demonstrate a full production pipeline:
+
+1. Secure Supabase authentication and user management
+2. A prompt-driven LLM orchestration layer (outline → draft → refine)
+3. Audio generation via ElevenLabs or equivalent providers
+4. Admin interface for prompt and configuration management
+5. Extensible architecture for future multi-model or profile-aware generation
+
+---
+
+## 🧩 Architecture
+
+### Core components
+
+| Layer                    | Description                                                                              |
+| ------------------------ | ---------------------------------------------------------------------------------------- |
+| **Next.js (App Router)** | Front-end framework under `/apps/web` with modular route layout.                         |
+| **Supabase**             | Auth, database, storage, and serverless functions (`generate-speech`, `generate-audio`). |
+| **Prompt Engine**        | Defines system and user prompts (Outline, Draft, Refine) under `/apps/web/lib/prompts`.  |
+| **Admin Console**        | Separate `/admin` route providing prompt profile management and configuration UI.        |
+| **Micro-Factory Core**   | Shared scaffolding for environment setup, admin identity, routing, and build security.   |
+
+### Multi-Stage Generation Flow
+
+1. **Intake** — structured form gathers user intent, tone, and must-include items.
+2. **Outline** — system prompt defines speech structure and rhetorical devices.
+3. **Draft** — model expands outline into full speech with UK English style rules.
+4. **Refine** — user and system iterations improve clarity, rhythm, and cadence.
+5. **Audio** — ElevenLabs API generates realistic voice output for final export.
+
+---
+
+## ⚙️ Setup (Developer)
+
+### 1. Prerequisites
+
+- Node 18+
+- PNPM (installed globally)
+- Supabase project + keys
+- OpenAI API key
+- ElevenLabs API key (for text-to-speech)
+
+### 2. Environment
+
+Create a `.env.local` file at the **repo root** (or within `/apps/web`) containing:
+
+```bash
+VITE_SUPABASE_URL=...
+VITE_SUPABASE_PUBLISHABLE_KEY=...
+OPENAI_API_KEY=...
+ADMIN_EMAILS=you@example.com,dan@example.com
+```

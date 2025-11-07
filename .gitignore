@@ -1,59 +1,51 @@
-# ------------------------------
-# Dependencies & Package Stores
-# ------------------------------
+# ----------------------------
+# 🏗️  Base Project Ignored Files
+# ----------------------------
+
+# Node / PNPM
 node_modules
 .pnpm-store
-.pnpm-debug.log*
-.pnp
-.pnp.js
+.npm
+*.tsbuildinfo
 
-# ------------------------------
-# Build & Output Directories
-# ------------------------------
-dist
-build
+# Build outputs
 .next
+dist
 out
 .turbo
 .cache
 
-# ------------------------------
-# Environment Files
-# ------------------------------
-.env
-.env.*
-!.env.example
-
-# ------------------------------
-# Miscellaneous
-# ------------------------------
-.DS_Store
-*.pem
-
-# ------------------------------
-# Debug / Logs
-# ------------------------------
+# Logs
+*.log
 npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
 pnpm-debug.log*
 
-# ------------------------------
-# IDEs & Editors
-# ------------------------------
+# Editor & Workspace
 .vscode/*
 !.vscode/tasks.json
 !.vscode/settings.json
 .idea
+*.swp
 
-# ------------------------------
-# TypeScript
-# ------------------------------
-*.tsbuildinfo
-
-# ------------------------------
-# Docker / Dev Containers
-# ------------------------------
-docker-compose*.yml
+# Docker & Dev Containers
 .docker
 .devcontainer
+
+# Supabase local artifacts
+.supabase
+supabase/.temp
+
+# Environment files
+.env
+.env.*
+!.env.example
+!.env.template
+
+# Misc cache / coverage
+coverage
+*.tmp
+.DS_Store
+
+# ----------------------------
+# ✅  Keep only intentional files
+# ----------------------------
