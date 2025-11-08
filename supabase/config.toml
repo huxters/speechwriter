@@ -10,7 +10,7 @@
 [project]
 # Your Supabase project reference ID (find this in your Supabase dashboard URL)
 # Example: https://supabase.com/dashboard/project/abcd1234 -> project_ref = "abcd1234"
-ref = "your_project_ref_here"
+ref = "xlsrvkrtzpcgnuidkywe"
 
 # Database connection string for local development
 # This can be left commented unless you run Supabase locally.

@@ -1,21 +1,20 @@
 // apps/web/lib/auth/isAdmin.ts
 
 /**
- * Admin authentication helper.
- * Works in both server and client:
- * - Uses NEXT_PUBLIC_ADMIN_EMAILS for client-side checks (for showing links)
- * - Falls back to ADMIN_EMAILS on the server if needed
+ * Admin email helper.
+ *
+ * Uses NEXT_PUBLIC_ADMIN_EMAILS as a comma-separated list:
+ * NEXT_PUBLIC_ADMIN_EMAILS=alice@example.com,bob@example.com
  */
 
-const raw = process.env.NEXT_PUBLIC_ADMIN_EMAILS || process.env.ADMIN_EMAILS || '';
+const RAW = process.env.NEXT_PUBLIC_ADMIN_EMAILS || '';
 
-const ADMIN_EMAILS = raw
-  .split(',')
-  .map(email => email.trim().toLowerCase())
+const ADMIN_EMAILS: string[] = RAW.split(',')
+  .map(e => e.trim().toLowerCase())
   .filter(Boolean);
 
 /**
- * Returns true if the supplied email belongs to an admin.
+ * Returns true if the given email is in the configured admin list.
  */
 export function isAdminEmail(email?: string | null): boolean {
   if (!email) return false;
@@ -23,6 +22,8 @@ export function isAdminEmail(email?: string | null): boolean {
 }
 
 /**
- * Expose the resolved admin list (mainly for debugging / tooling).
+ * Optional helper if you ever want to inspect current admin list.
  */
-export const ADMIN_LIST = ADMIN_EMAILS;
+export function getAdminEmails(): string[] {
+  return ADMIN_EMAILS;
+}

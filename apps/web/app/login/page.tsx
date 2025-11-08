@@ -1,86 +1,64 @@
-'use client';
+// apps/web/app/login/page.tsx
 
-import { useState } from 'react';
-import { createClient } from '@/lib/supabase/client';
+import { redirect } from 'next/navigation';
+import { createClient } from '@/lib/supabase/server';
 
-export default function LoginPage(): JSX.Element {
-  const [email, setEmail] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState('');
-  const supabase = createClient();
+export default async function LoginPage(): Promise<JSX.Element> {
+  const supabase = await createClient();
 
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    setLoading(true);
-    setMessage('');
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
 
-    try {
-      const { error } = await supabase.auth.signInWithOtp({
-        email,
-        options: {
-          emailRedirectTo: `${window.location.origin}/callback`,
-        },
-      });
+  // If already logged in, don't show the login form – send to dashboard
+  if (session) {
+    redirect('/dashboard');
+  }
 
-      if (error) {
-        setMessage(`Error: ${error.message}`);
-      } else {
-        setMessage('Check your email for the magic link!');
-      }
-    } catch (err) {
-      setMessage(`Error: ${err instanceof Error ? err.message : 'Unknown error'}`);
-    } finally {
-      setLoading(false);
+  async function sendMagicLink(formData: FormData) {
+    'use server';
+
+    const supabase = await createClient();
+    const email = String(formData.get('email') || '').trim();
+
+    if (!email) {
+      // In a real app you'd surface this nicely; for now just no-op.
+      return;
     }
-  };
+
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: {
+        emailRedirectTo: `${process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000'}/callback`,
+      },
+    });
+
+    if (error) {
+      console.error('Error sending magic link:', error.message);
+      // Could render a better error via redirect or middleware if needed
+    }
+  }
 
   return (
-    <div style={{ padding: '40px', fontFamily: 'system-ui, sans-serif', maxWidth: '400px', margin: '0 auto' }}>
-      <h1 style={{ fontSize: '24px', marginBottom: '24px' }}>Login</h1>
-      <form onSubmit={handleSubmit}>
-        <div style={{ marginBottom: '16px' }}>
-          <input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="Email"
-            required
-            style={{ width: '100%', padding: '8px', fontSize: '14px', border: '1px solid #ccc', borderRadius: '4px' }}
-          />
-        </div>
-        <button
-          type="submit"
-          disabled={loading}
-          style={{
-            width: '100%',
-            padding: '8px',
-            fontSize: '14px',
-            backgroundColor: '#0066cc',
-            color: 'white',
-            border: 'none',
-            borderRadius: '4px',
-            cursor: loading ? 'not-allowed' : 'pointer',
-            opacity: loading ? 0.6 : 1,
-          }}
-        >
-          {loading ? 'Sending...' : 'Send magic link'}
+    <main className="auth-page">
+      <h1 className="auth-title">Login</h1>
+
+      <form action={sendMagicLink}>
+        <label htmlFor="email" className="auth-label">
+          Email
+        </label>
+        <input
+          id="email"
+          name="email"
+          type="email"
+          required
+          className="auth-input"
+          placeholder="you@example.com"
+        />
+        <button type="submit" className="auth-button">
+          Send magic link
         </button>
       </form>
-      {message && (
-        <div
-          style={{
-            marginTop: '16px',
-            padding: '8px',
-            fontSize: '14px',
-            backgroundColor: message.includes('Error') ? '#fee' : '#efe',
-            color: message.includes('Error') ? '#c00' : '#060',
-            borderRadius: '4px',
-          }}
-        >
-          {message}
-        </div>
-      )}
-    </div>
+    </main>
   );
 }
-

@@ -1,263 +1,373 @@
-/* ---------------------------------------------------------------------------
-   GLOBAL BASE STYLES — Speechwriter by Halo MicroFactory
-   --------------------------------------------------------------------------- */
+/* apps/web/src/app/globals.css */
 
-:root {
-  --bg-main: #ffffff;
-  --bg-header: #070b1a;
-  --text-main: #111827;
-  --text-muted: #6b7280;
-  --accent: #4f46e5;
-  --accent-soft: rgba(79, 70, 229, 0.12);
-  --border-subtle: rgba(148, 163, 253, 0.25);
-  --radius: 16px;
-}
+/* ------- Base reset / typography ------- */
 
-/* --- Base Reset --- */
-
-* {
+*,
+*::before,
+*::after {
   box-sizing: border-box;
-  margin: 0;
-  padding: 0;
 }
 
 html,
 body {
+  margin: 0;
+  padding: 0;
   height: 100%;
 }
 
 body {
-  margin: 0;
-  padding: 0;
   font-family:
     system-ui,
     -apple-system,
     BlinkMacSystemFont,
-    'Segoe UI',
-    Roboto,
-    Oxygen,
-    Ubuntu,
-    Cantarell,
-    'Open Sans',
-    'Helvetica Neue',
-    sans-serif;
-  background-color: var(--bg-main);
-  color: var(--text-main);
-  line-height: 1.55;
-  -webkit-font-smoothing: antialiased;
+    -sans-serif;
+  background: #f5f6fb;
+  color: #111827;
 }
 
+/* Make app content not slam into the edges */
+main {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 32px 24px 40px;
+}
+
+/* Simple links */
 a {
   color: inherit;
   text-decoration: none;
 }
 
-/* ---------------------------------------------------------------------------
-     HEADER & NAVIGATION
-     --------------------------------------------------------------------------- */
+/* ------- Header / navigation ------- */
 
-.header {
+.app-header {
   position: sticky;
   top: 0;
-  z-index: 50;
+  z-index: 40;
+  background: radial-gradient(circle at top left, #4f46e5, #111827);
+  color: #ffffff;
+  box-shadow: 0 10px 25px rgba(15, 23, 42, 0.28);
+}
+
+.app-header-inner {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 14px 24px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 32px;
-  background: radial-gradient(circle at top left, #111827, #020817);
-  color: #f9fafb;
-  box-shadow: 0 8px 30px rgba(15, 23, 42, 0.4);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  gap: 24px;
 }
 
-.header-left {
+/* Brand */
+
+.app-brand {
   display: flex;
   align-items: center;
-  gap: 10px;
 }
 
-.logo {
+.app-brand-link {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  text-decoration: none;
-  color: inherit;
-}
-
-.logo-dot {
-  width: 18px;
-  height: 18px;
-  border-radius: 999px;
-  background: radial-gradient(circle at 30% 0, #38bdf8, #4f46e5);
-  box-shadow: 0 0 14px rgba(79, 70, 229, 0.8);
-}
-
-.logo-text {
-  display: flex;
-  flex-direction: column;
-  line-height: 1.1;
-}
-
-.logo-title {
-  font-size: 15px;
-  font-weight: 600;
-  letter-spacing: 0.1px;
-}
-
-.logo-sub {
-  font-size: 10px;
-  opacity: 0.7;
-}
-
-.header-nav {
-  display: flex;
-  align-items: center;
   gap: 10px;
 }
 
-.nav-link {
-  padding: 8px 14px;
+.app-brand-dot {
+  width: 16px;
+  height: 16px;
   border-radius: 999px;
-  font-size: 12px;
-  text-decoration: none;
-  color: rgba(249, 250, 251, 0.78);
+  background: radial-gradient(circle at 30% 0, #60a5fa, #a855f7);
+  box-shadow: 0 0 12px rgba(129, 140, 248, 0.9);
+}
+
+.app-brand-text {
+  display: flex;
+  flex-direction: column;
+}
+
+.app-brand-title {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.app-brand-subtitle {
+  font-size: 10px;
+  opacity: 0.78;
+}
+
+/* Nav */
+
+.app-nav {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  font-size: 13px;
+}
+
+.app-nav-link {
+  padding: 6px 10px;
+  border-radius: 999px;
+  opacity: 0.9;
   transition: all 0.16s ease-out;
-  border: 1px solid transparent;
 }
 
-.nav-link:hover {
-  background-color: rgba(148, 163, 253, 0.14);
+.app-nav-link:hover {
+  opacity: 1;
+  background: rgba(15, 23, 42, 0.22);
+}
+
+.app-nav-link-admin {
+  background: linear-gradient(to right, #4f46e5, #7c3aed);
   color: #ffffff;
+  box-shadow: 0 6px 16px rgba(79, 70, 229, 0.5);
 }
 
-.nav-link-active {
-  background: radial-gradient(circle at top, #4f46e5, #312e81);
-  box-shadow: 0 6px 20px rgba(79, 70, 229, 0.45);
-  color: #ffffff;
-}
+/* User area */
 
-.nav-logout {
-  padding: 6px 12px;
-  border-radius: 999px;
+.app-user {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   font-size: 11px;
-  border: 1px solid rgba(148, 163, 253, 0.3);
+}
+
+.app-user-email {
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.28);
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Buttons */
+
+.btn-ghost {
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 253, 0.7);
   background: transparent;
-  color: rgba(249, 250, 251, 0.78);
+  color: #e5e7eb;
+  font-size: 11px;
   cursor: pointer;
   transition: all 0.16s ease-out;
 }
 
-.nav-logout:hover {
-  background-color: rgba(248, 250, 252, 0.06);
-  color: #ffffff;
+.btn-ghost:hover {
+  background: rgba(15, 23, 42, 0.6);
 }
 
-/* ---------------------------------------------------------------------------
-     DASHBOARD / PAGE BASE
-     --------------------------------------------------------------------------- */
+/* Generic primary button style (used in admin & prompts) */
 
-main {
-  padding: 48px 32px;
-  max-width: 1000px;
-  margin: 0 auto;
-}
-
-h1,
-h2,
-h3 {
-  font-weight: 600;
-}
-
-h1 {
-  font-size: 28px;
-  color: var(--text-main);
-  margin-bottom: 8px;
-}
-
-h2 {
-  font-size: 20px;
-  color: var(--text-main);
-  margin-bottom: 8px;
-}
-
-p {
-  color: var(--text-muted);
-  margin-bottom: 12px;
-}
-
-/* ---------------------------------------------------------------------------
-     BUTTONS
-     --------------------------------------------------------------------------- */
-
-button,
-.btn {
+.btn-primary {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  padding: 10px 18px;
-  font-size: 13px;
-  font-weight: 500;
+  padding: 8px 16px;
   border-radius: 999px;
-  cursor: pointer;
-  transition: all 0.15s ease-in-out;
   border: none;
-}
-
-.btn-primary {
-  background: #111827;
-  color: #fff;
+  cursor: pointer;
+  background: linear-gradient(to right, #111827, #4f46e5);
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 500;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.35);
+  transition: all 0.18s ease-out;
+  text-decoration: none;
 }
 
 .btn-primary:hover {
-  background: #1f2937;
+  transform: translateY(-1px);
+  box-shadow: 0 11px 26px rgba(15, 23, 42, 0.4);
 }
 
-.btn-secondary {
-  background: #e5e7eb;
-  color: #111827;
-}
-
-.btn-secondary:hover {
-  background: #d1d5db;
-}
-
-/* ---------------------------------------------------------------------------
-     CARDS
-     --------------------------------------------------------------------------- */
+/* ------- Cards / layout helpers ------- */
 
 .card {
   background: #ffffff;
-  border-radius: var(--radius);
-  padding: 20px;
-  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
-  border: 1px solid rgba(148, 163, 253, 0.08);
+  border-radius: 14px;
+  padding: 16px 16px 14px;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  margin-bottom: 18px;
 }
 
-.card h2 {
-  font-size: 16px;
-  margin: 0 0 6px;
-}
-
-.card p {
-  font-size: 13px;
-  margin: 0 0 10px;
-}
-
-/* ---------------------------------------------------------------------------
-     UTILITY CLASSES
-     --------------------------------------------------------------------------- */
-
-.text-muted {
-  color: var(--text-muted);
-}
-
-.text-accent {
-  color: var(--accent);
-}
-
-.center {
+.card-header {
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 10px;
+}
+
+.card-label {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.card-caption {
+  font-size: 11px;
+  color: #6b7280;
+}
+
+.list {
+  margin: 8px 0 14px;
+  padding-left: 18px;
+  font-size: 11px;
+  color: #6b7280;
+}
+
+/* Toggle */
+
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  color: #6b7280;
+}
+
+.toggle input {
+  accent-color: #4f46e5;
+}
+
+/* Field groups */
+
+.field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.field-group label {
+  font-size: 10px;
+  font-weight: 500;
+  color: #4b5563;
+}
+
+.field-group textarea {
+  min-height: 72px;
+  padding: 7px 8px;
+  font-size: 11px;
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
+  resize: vertical;
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New',
+    monospace;
+}
+
+.field-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.field-inline {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 120px;
+}
+
+.field-inline input {
+  padding: 6px 8px;
+  font-size: 11px;
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
+}
+
+/* Alerts */
+
+.alert {
+  padding: 8px 10px;
+  border-radius: 10px;
+  font-size: 10px;
+  margin-bottom: 12px;
+}
+
+.alert.ok {
+  background: #ecfdf5;
+  color: #15803d;
+  border: 1px solid #bbf7d0;
+}
+
+.alert.error {
+  background: #fef2f2;
+  color: #b91c1c;
+  border: 1px solid #fecaca;
+}
+
+/* ------- Admin page layout ------- */
+
+.admin-page {
+  padding-top: 22px;
+}
+
+.admin-title {
+  font-size: 22px;
+  margin: 0 0 4px;
+}
+
+.admin-subtitle {
+  font-size: 12px;
+  margin: 0 0 16px;
+  color: #6b7280;
+}
+
+/* ------- Login page tweaks ------- */
+
+.auth-page {
+  max-width: 400px;
+  margin: 40px auto;
+  padding: 24px 24px 28px;
+  background: #ffffff;
+  border-radius: 16px;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
+  border: 1px solid rgba(226, 232, 240, 0.9);
+}
+
+.auth-title {
+  margin: 0 0 16px;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.auth-label {
+  font-size: 11px;
+  color: #4b5563;
+  margin-bottom: 4px;
+}
+
+.auth-input {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
+  font-size: 12px;
+  margin-bottom: 10px;
+}
+
+.auth-button {
+  width: 100%;
+  margin-top: 6px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: linear-gradient(to right, #2563eb, #4f46e5);
+  color: #ffffff;
+  border: none;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: 0 8px 18px rgba(37, 99, 235, 0.35);
+  transition: all 0.18s ease-out;
+}
+
+.auth-button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 11px 26px rgba(37, 99, 235, 0.45);
 }

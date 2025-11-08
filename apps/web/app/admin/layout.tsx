@@ -5,37 +5,43 @@ import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import { isAdminEmail } from '@/lib/auth/isAdmin';
 
+export const metadata = {
+  title: 'Admin | Speechwriter',
+};
+
 export default async function AdminLayout({
   children,
 }: {
   children: ReactNode;
 }): Promise<JSX.Element> {
   const supabase = await createClient();
-  const { data } = await supabase.auth.getUser();
-  const user = data?.user;
 
+  const { data, error } = await supabase.auth.getUser();
+
+  if (error) {
+    console.error('Error fetching user in AdminLayout:', error.message);
+    redirect('/login');
+  }
+
+  const user = data.user;
+
+  // Not logged in OR not an admin → bounce to login
   if (!user || !isAdminEmail(user.email)) {
     redirect('/login');
   }
 
   return (
-    <main
-      style={{
-        padding: '40px',
-        fontFamily: 'Inter, system-ui, sans-serif',
-      }}
-    >
-      <h1 style={{ fontSize: 24, fontWeight: 600, marginBottom: 4 }}>Admin</h1>
+    <main style={{ padding: '32px' }}>
+      <h1 style={{ fontSize: 24, marginBottom: 4 }}>Admin</h1>
       <p
         style={{
-          color: '#666',
+          fontSize: 13,
+          color: 'var(--text-muted)',
           marginBottom: 24,
-          fontSize: 14,
         }}
       >
         Internal configuration console. Access restricted to admin accounts.
       </p>
-
       {children}
     </main>
   );
