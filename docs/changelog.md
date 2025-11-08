@@ -33,3 +33,12 @@
 
 - Updated spec.md to include Phase C₀ plan
 - Unified dashboard/generate route
+- Wired `/dashboard/generate` to the live Speechwriter pipeline (`/api/speechwriter`)
+- Added live stage indicator for Planner → Drafter → Judge → Guardrail → Editor during generation
+- Added optional debug trace toggle on the dashboard generate page
+- Kept `/speechwriter` as an internal/debug route using the same pipeline
+
+**Current Phase**
+
+- Phase C₀ — Productise MVP: Complete
+- Next: Phase C — use structured inputs and clearer constraints to improve pipeline intelligence
