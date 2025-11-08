@@ -1,3 +1,10 @@
+// -----------------------------
+// Speechwriter Pipeline Orchestrator
+// -----------------------------
+// Runs: Planner → Drafter → Judge → Guardrail (stub) → Editor
+// Returns final speech + structured trace for debugging/inspection.
+// -----------------------------
+
 import OpenAI from 'openai';
 import { plannerPrompt } from './planner.prompt';
 import { drafterPrompt } from './drafter.prompt';
@@ -9,8 +16,10 @@ const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
+type PipelineStage = 'planner' | 'drafter' | 'judge' | 'guardrail' | 'editor';
+
 type PipelineTraceEntry = {
-  stage: 'planner' | 'drafter' | 'judge' | 'guardrail' | 'editor';
+  stage: PipelineStage;
   message: string;
 };
 
@@ -21,13 +30,18 @@ export async function runSpeechwriterPipeline(userBrief: string): Promise<{
   trace: PipelineTraceEntry[];
 }> {
   if (!process.env.OPENAI_API_KEY) {
-    throw new Error('OPENAI_API_KEY is not set');
+    throw new Error('OPENAI_API_KEY_MISSING');
   }
+
+  const briefSnippet = userBrief.length > 160 ? userBrief.slice(0, 160) + '...' : userBrief;
 
   const trace: PipelineTraceEntry[] = [];
 
   // 1. Planner
-  trace.push({ stage: 'planner', message: 'Planner: generating structured plan from brief.' });
+  trace.push({
+    stage: 'planner',
+    message: `Planner: generating structured plan from brief starting with: "${briefSnippet}"`,
+  });
 
   const plannerRes = await client.chat.completions.create({
     model: 'gpt-4.1-mini',
@@ -39,28 +53,47 @@ export async function runSpeechwriterPipeline(userBrief: string): Promise<{
 
   const plannerText = plannerRes.choices[0]?.message?.content || '';
   const plannerJson = safeJson(plannerText);
-  trace.push({ stage: 'planner', message: 'Planner: completed and JSON parsed.' });
+
+  trace.push({
+    stage: 'planner',
+    message: 'Planner: completed and JSON parsed.',
+  });
 
   // 2. Drafter
-  trace.push({ stage: 'drafter', message: 'Drafter: creating alternative speech drafts.' });
+  trace.push({
+    stage: 'drafter',
+    message: 'Drafter: creating alternative speech drafts.',
+  });
 
   const drafterRes = await client.chat.completions.create({
     model: 'gpt-4.1-mini',
     messages: [
       { role: 'system', content: drafterPrompt },
-      {
-        role: 'user',
-        content: JSON.stringify(plannerJson),
-      },
+      { role: 'user', content: JSON.stringify(plannerJson) },
     ],
   });
 
   const drafterText = drafterRes.choices[0]?.message?.content || '';
   const { draft1, draft2 } = extractDrafts(drafterText);
-  trace.push({ stage: 'drafter', message: 'Drafter: produced 2 drafts.' });
+
+  if (!draft1 || !draft2) {
+    trace.push({
+      stage: 'drafter',
+      message: 'Drafter: FAILED to extract both drafts. Aborting.',
+    });
+    throw new Error('DRAFTER_OUTPUT_INVALID');
+  }
+
+  trace.push({
+    stage: 'drafter',
+    message: 'Drafter: produced 2 drafts.',
+  });
 
   // 3. Judge
-  trace.push({ stage: 'judge', message: 'Judge: evaluating drafts and selecting a winner.' });
+  trace.push({
+    stage: 'judge',
+    message: 'Judge: evaluating drafts and selecting a winner.',
+  });
 
   const judgeRes = await client.chat.completions.create({
     model: 'gpt-4.1-mini',
@@ -68,25 +101,37 @@ export async function runSpeechwriterPipeline(userBrief: string): Promise<{
       { role: 'system', content: judgePrompt },
       {
         role: 'user',
-        content: JSON.stringify({
-          planner: plannerJson,
-          draft1,
-          draft2,
-        }),
+        content: JSON.stringify({ planner: plannerJson, draft1, draft2 }),
       },
     ],
   });
 
   const judgeText = judgeRes.choices[0]?.message?.content || '';
   const judgeJson = safeJson(judgeText);
+
+  if (judgeJson.winner !== 1 && judgeJson.winner !== 2) {
+    trace.push({
+      stage: 'judge',
+      message: 'Judge: invalid winner value. Defaulting to draft 1.',
+    });
+    judgeJson.winner = 1;
+    judgeJson.reason = judgeJson.reason || 'Defaulted due to invalid judge output.';
+  }
+
   const winnerDraft = judgeJson.winner === 2 ? draft2 : draft1;
+
   trace.push({
     stage: 'judge',
-    message: `Judge: selected draft ${judgeJson.winner} — ${judgeJson.reason || 'no reason provided'}.`,
+    message: `Judge: selected draft ${judgeJson.winner} — ${
+      judgeJson.reason || 'no reason provided'
+    }.`,
   });
 
   // 4. Guardrail (stub)
-  trace.push({ stage: 'guardrail', message: 'Guardrail: stub check (always OK for MVP).' });
+  trace.push({
+    stage: 'guardrail',
+    message: 'Guardrail: stub check (always OK for MVP).',
+  });
 
   const guardrailRes = await client.chat.completions.create({
     model: 'gpt-4.1-mini',
@@ -96,32 +141,48 @@ export async function runSpeechwriterPipeline(userBrief: string): Promise<{
     ],
   });
 
-  const guardrailOutput = (guardrailRes.choices[0]?.message?.content || '').trim();
-  if (guardrailOutput !== 'OK') {
+  const guardrailOutput = (guardrailRes.choices[0]?.message?.content || '').trim() || 'OK';
+
+  if (guardrailOutput === 'OK') {
     trace.push({
       stage: 'guardrail',
-      message: `Guardrail: returned '${guardrailOutput}', but MVP ignores non-OK.`,
+      message: 'Guardrail: OK.',
     });
   } else {
-    trace.push({ stage: 'guardrail', message: 'Guardrail: OK.' });
+    trace.push({
+      stage: 'guardrail',
+      message: `Guardrail: returned '${guardrailOutput}', ignored for MVP.`,
+    });
   }
 
   // 5. Editor
-  trace.push({ stage: 'editor', message: 'Editor: tightening winning draft for spoken delivery.' });
+  trace.push({
+    stage: 'editor',
+    message: 'Editor: tightening winning draft for spoken delivery.',
+  });
 
   const editorRes = await client.chat.completions.create({
     model: 'gpt-4.1-mini',
     messages: [
       { role: 'system', content: editorPrompt },
-      {
-        role: 'user',
-        content: winnerDraft,
-      },
+      { role: 'user', content: winnerDraft },
     ],
   });
 
-  const finalSpeech = editorRes.choices[0]?.message?.content || '';
-  trace.push({ stage: 'editor', message: 'Editor: final speech ready.' });
+  const finalSpeech = editorRes.choices[0]?.message?.content?.trim() || '';
+
+  if (!finalSpeech) {
+    trace.push({
+      stage: 'editor',
+      message: 'Editor: empty response.',
+    });
+    throw new Error('EDITOR_OUTPUT_EMPTY');
+  }
+
+  trace.push({
+    stage: 'editor',
+    message: 'Editor: final speech ready.',
+  });
 
   return {
     finalSpeech,

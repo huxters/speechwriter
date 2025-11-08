@@ -1,106 +1,168 @@
----
-version: 1.0
-lastUpdated: 2025-11-08
-author: Stephen Highlander
-status: Active (MVP Alignment)
----
+# Speechwriter / Micro-Factory MVP — Product Specification
 
-# Micro-Factory System — Top-Down Specification (v1.0)
-
-### _Founder’s Strategy Voice with Technical Appendix_
+_v1.1 – 2025-11-08_
 
 ---
 
-## 1. Founding Vision
+## 1. Purpose
 
-The **Micro-Factory** is a system for producing founder-grade AI products from shared scaffolding.  
-It fuses craft and code: human design judgement with reproducible technical infrastructure.
+Speechwriter is the **first live instantiation** of the wider **Micro-Factory System** — a modular environment for producing founder-grade AI products with disciplined architecture, human-centred UX, and transparent reasoning flows.
 
-Its purpose is to let a small, high-calibre founding team move from idea → prototype → production in weeks, not quarters.  
-Each product expresses the same DNA — structured reasoning, aesthetic integrity, explainable architecture, and minimal complexity.  
-The first expression is **Speechwriter**, an applied case study demonstrating the Micro-Factory’s core pipeline and environment.
+The goal of this first release is **to prove the full end-to-end pipeline pattern** that all later Micro-Factory products will inherit:
 
----
+> “Planner → Drafter → Judge → Guardrail → Editor → Output”
 
-## 2. Philosophy and Design Principles
+Speechwriter simply makes that architecture visible.  
+It turns a free-text brief into a structured, spoken-ready final output while showing every reasoning step.
 
-Derived from prior academic prompt-engineering work:
-
-- **Layered Intelligence** — distinct cognitive roles (Planner, Drafter, Judge, Editor, Guardrail) rather than a single monolithic prompt.
-- **Explainable Workflows** — every stage emits interpretable outputs (JSON or text).
-- **Human-in-the-Loop Mastery** — the human soul makes the choice; the machine mind makes the thinking sharper.
-- **Iterative Craft** — prompts, roles, and pipelines are modular, composable, observable.
-- **Reusable Scaffolding** — once proven for Speechwriter, it can be cloned to build other products (Decision Engine, Story Composer, etc.).
-- **Founder-Grade Execution** — clean repos, reproducible builds, pnpm workspace discipline, `.gitignore` hygiene, admin-console pattern, automated start-up/shutdown flow.
+Longer-term, this architecture underpins a multi-product ecosystem (Speechwriter, Decision Optimisation Engine, Perspective Engine, etc.) — all sharing a **common pipeline, identity, and admin console**.
 
 ---
 
-## 3. System Architecture Overview
+## 2. Current Scope (Phase B.1)
 
-| Layer             | Role       | Function                                                      |
-| ----------------- | ---------- | ------------------------------------------------------------- |
-| **Planner**       | Strategy   | Converts user briefs into structured intent maps (JSON)       |
-| **Drafter**       | Generation | Produces multiple candidate drafts                            |
-| **Judge/Scorer**  | Evaluation | Scores and selects best drafts                                |
-| **Editor**        | Refinement | Polishes tone, rhythm, and spoken delivery                    |
-| **Guardrail**     | Safety     | Placeholder for factual/tone checks                           |
-| **Admin Console** | Control    | Shared UI framework for identity, routing, logs, and security |
-
-Each module acts as a **self-contained prompt agent** with defined inputs/outputs for transparent reasoning.
-
----
-
-## 4. Speechwriter as MVP Implementation
-
-Speechwriter demonstrates the Micro-Factory in action:
-
-- Complete linear prompt pipeline proving the concept.
-- Admin environment linking orchestration and monitoring.
-- Working pnpm-based repo structure ready for reuse.
-- Clear separation between active and scaffolded components.
-
-Its domain (speech creation) is secondary to its architectural value: a living proof that the Micro-Factory pattern works end-to-end.
+| Element                 | Status      | Description                                                                    |
+| ----------------------- | ----------- | ------------------------------------------------------------------------------ |
+| **Functional Pipeline** | ✅ Complete | Planner → Drafter → Judge → Guardrail (stub) → Editor all operational.         |
+| **Trace Visibility**    | ✅ Complete | Full stage-by-stage trace rendered in the UI for transparency and debugging.   |
+| **Validation**          | ✅ Complete | Input limited to 2000 characters, with explicit front-end and back-end checks. |
+| **Error Handling**      | ✅ Complete | Structured errors surfaced to UI; pipeline failures handled gracefully.        |
+| **UI Layer**            | ✅ MVP      | `/speechwriter` route provides direct interaction and visible trace.           |
+| **Database / Auth**     | ⚙️ Baseline | Supabase authentication active (email OTP magic link). No persistence yet.     |
+| **Docs & Versioning**   | ✅ Live     | `docs/spec.md` and `docs/changelog.md` under version control.                  |
 
 ---
 
-## 5. Current Build Map
+## 3. System Architecture
 
-| Component             | Status         | Notes                                                |
-| --------------------- | -------------- | ---------------------------------------------------- |
-| Planner Prompt        | ✅ Complete    | Returns structured JSON for downstream use           |
-| Drafter Prompt        | ✅ Complete    | Generates multiple candidate drafts                  |
-| Judge/Scorer          | ✅ Working     | Selects and ranks drafts by quality                  |
-| Performance Editor    | ✅ Working     | Converts winning draft into final spoken form        |
-| Guardrail             | ⚪ Placeholder | Exists as stub for future tone/fact checks           |
-| Admin Console Pattern | ⚙️ Scaffolding | Base routes, identity, nav, task management ready    |
-| Dev Environment       | ✅ Complete    | pnpm workspace, clean `.gitignore`, start/stop tasks |
-| Data & State Layer    | ⚙️ Scaffolding | Ready for profile/persistence integration            |
-| Analytics/Logging     | 🔜 Planned     | For evaluation and telemetry                         |
+```
+root/
+├── apps/
+│   └── web/
+│       └── app/
+│           ├── dashboard/            # product UI
+│           ├── speechwriter/         # internal MVP test page
+│           ├── api/
+│           │   └── speechwriter/     # Next.js route calling pipeline
+│           └── layout.tsx / globals.css
+├── pipeline/
+│   ├── runSpeechwriter.ts            # orchestrator (Planner → … → Editor)
+│   ├── planner.prompt.ts
+│   ├── drafter.prompt.ts
+│   ├── judge.prompt.ts
+│   ├── guardrail.prompt.ts
+│   └── editor.prompt.ts
+├── docs/
+│   ├── spec.md
+│   └── changelog.md
+└── ...
+```
 
----
+**Stack**
 
-## 6. Updated Phase Plan (A–E)
-
-| Phase | Name                          | Description                                               | Output / Acceptance                            |
-| ----- | ----------------------------- | --------------------------------------------------------- | ---------------------------------------------- |
-| **A** | **Foundational Scaffolding**  | Environment setup, repo hygiene, shared tasks             | Clean repo, working start/stop, admin baseline |
-| **B** | **Functional MVP**            | Planner→Drafter→Judge→Editor end-to-end                   | Functional text flow with sample prompts       |
-| **C** | **Intelligence Expansion**    | Scoring metrics, adaptive planning, perspective injection | Configurable pipeline, richer evaluation logic |
-| **D** | **Admin + Analytics Console** | Dashboard for workflow control, logs, evaluation          | Browser-based console showing run history      |
-| **E** | **Production & Replication**  | Profile integration, persistence, cloning template        | Speechwriter ready for use and factory reuse   |
-
----
-
-## 7. Next-Step Recommendations
-
-1. Add this file to `/docs/spec.md` and link it from `README.md`.
-2. Validate Phase B end-to-end flow.
-3. Define scope for Phase C adaptive intelligence.
-4. Create “Factory Template Repo” from Speechwriter build.
-5. Begin internal documentation for prompt files and architecture.
+- Framework: Next.js 14 (App Router)
+- Language: TypeScript
+- Database: Supabase (PostgreSQL + RLS)
+- Styling: Tailwind CSS
+- Auth: Supabase Magic Link (Email OTP)
+- AI Orchestration: OpenAI API (via official client)
 
 ---
 
-## Appendix — Technical-Strategic Reference
+## 4. Pipeline Overview
 
-**Core Files**
+Each stage is encapsulated as a **system prompt + single API call**.  
+`runSpeechwriterPipeline()` executes them sequentially and collects structured logs.
+
+| Stage         | Function                                           | Model        | Output             |
+| ------------- | -------------------------------------------------- | ------------ | ------------------ |
+| **Planner**   | Converts free-text brief into structured plan JSON | gpt-4.1-mini | `planner.json`     |
+| **Drafter**   | Produces 2 alternative drafts from planner output  | gpt-4.1-mini | `draft1`, `draft2` |
+| **Judge**     | Compares drafts → selects winner + reason          | gpt-4.1-mini | `{winner, reason}` |
+| **Guardrail** | Performs factual/tone safety check (stub)          | gpt-4.1-mini | `"OK"`             |
+| **Editor**    | Refines winning draft for spoken delivery          | gpt-4.1-mini | `finalSpeech`      |
+
+All intermediate data are preserved in a `trace[]` array:
+
+```ts
+[{ stage: "planner", message: "Planner: completed and JSON parsed." }, ...]
+```
+
+Returned payload:
+
+```ts
+{
+  finalSpeech,
+  planner,
+  judge: { winner, reason },
+  trace
+}
+```
+
+---
+
+## 5. Design Principles
+
+1. **Transparency** — show the reasoning chain (“human soul + machine mind”).
+2. **Determinism** — single pipeline, consistent per-run flow.
+3. **Isolation** — each stage callable independently for testing.
+4. **Simplicity first** — no RAG, agents, or external orchestration until justified.
+5. **Product-ready discipline** — documented folders, clean dependencies, PNPM workflow, versioned docs.
+
+---
+
+## 6. Roadmap (Phases A – E)
+
+| Phase   | Name                        | Status      | Objectives                                                                                                                |
+| ------- | --------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------- |
+| **A**   | _Functional Scaffolding_    | ✅ Complete | Base Next.js app, Supabase auth, folder structure, local pipeline shell.                                                  |
+| **B**   | _End-to-End Pipeline MVP_   | ✅ Complete | Planner → Editor pipeline working; trace visible.                                                                         |
+| **B.1** | _Stabilisation & Testing_   | ✅ Complete | Input validation, UI feedback, error handling, consistent trace.                                                          |
+| **C₀**  | _Productise MVP_            | 🚧 Next     | Replace `/dashboard/generate` logic with live pipeline; keep `/speechwriter` as internal debug.                           |
+| **C**   | _Intelligent Enhancements_  | ⏳ Planned  | Use structured form inputs (tone, audience, etc.) as Planner context; introduce Judge criteria and Editor style controls. |
+| **D**   | _Admin & Observer Console_  | 🔜          | History of runs, view raw stage outputs, toggle prompt versions live.                                                     |
+| **E**   | _Micro-Factory Integration_ | 🔜          | Shared Admin Console, profile identity, versioned prompt library, cross-product pipeline template.                        |
+
+---
+
+## 7. Operating Conventions
+
+### Development
+
+- **Start environment** → _Tasks → Start Web_
+- **Stop environment** → _Tasks → Stop Server_
+- No daily reinstalls; use PNPM workflow (`pnpm --filter web dev` if needed).
+
+### Commits
+
+- Use short atomic messages (`feat:`, `fix:`, `docs:` etc.).
+- Always update `docs/changelog.md` on functional changes.
+- Tag significant milestones (v1.0, v1.1, etc.).
+
+### Directory Rules
+
+- No `src/` folder — everything under `apps/web/app`.
+- Shared business logic lives in `/pipeline`.
+- Each new pipeline inherits `runSpeechwriterPipeline()` as template.
+
+---
+
+## 8. Next Immediate Tasks
+
+1. **Docs sync** — changelog & spec committed (v1.1).
+2. **Phase C₀** — unify `/dashboard/generate` with `/api/speechwriter`.
+3. **Phase C** — structured form → planner context.
+4. **Prepare Admin Console Pattern** (already standardised in Micro-Factory spec).
+
+---
+
+## 9. Long-Term Vision
+
+Speechwriter demonstrates the **Micro-Factory thesis**:  
+that _a single, inspectable decision pipeline can be reused across any domain_ — speechwriting, career choice, planning, or strategy — where clarity and tone matter.
+
+> **“The human soul makes the choice; the machine mind makes the thinking sharper.”**
+
+This principle anchors every product built on this foundation.
+
+---

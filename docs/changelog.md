@@ -15,3 +15,21 @@
 - Phase A — _Foundational Scaffolding_  
   Status: In progress  
   Next: Verify dev environment runs cleanly and add minimal pipeline files
+
+### v1.1 — 2025-11-08
+
+**Overview**
+
+- Added `/speechwriter` MVP page using full Planner → Drafter → Judge → Guardrail → Editor pipeline
+- Added trace visibility for all pipeline stages
+- Introduced validation for brief length and clearer error handling
+
+**Current Phase**
+
+- Phase B — Functional MVP
+- Phase B.1 — Stabilisation complete
+
+### v1.2 — 2025-11-09
+
+- Updated spec.md to include Phase C₀ plan
+- Unified dashboard/generate route

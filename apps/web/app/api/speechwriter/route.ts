@@ -3,11 +3,19 @@ import { runSpeechwriterPipeline } from '../../../../../pipeline/runSpeechwriter
 
 export async function POST(req: Request) {
   try {
-    const body = await req.json();
+    const body = await req.json().catch(() => null);
     const brief = body?.brief;
 
-    if (!brief || typeof brief !== 'string') {
-      return NextResponse.json({ error: "Missing 'brief' in request body" }, { status: 400 });
+    if (!brief || typeof brief !== 'string' || !brief.trim()) {
+      return NextResponse.json({ error: 'Please provide a short text brief.' }, { status: 400 });
+    }
+
+    // Hard cap to avoid someone pasting a novel in MVP
+    if (brief.length > 2000) {
+      return NextResponse.json(
+        { error: 'Brief too long for MVP. Please keep it under 2000 characters.' },
+        { status: 400 }
+      );
     }
 
     const result = await runSpeechwriterPipeline(brief);
@@ -23,6 +31,27 @@ export async function POST(req: Request) {
     );
   } catch (error: any) {
     console.error('Speechwriter API error:', error);
-    return NextResponse.json({ error: 'Internal error running pipeline' }, { status: 500 });
+
+    const msg = error?.message || '';
+
+    if (msg === 'OPENAI_API_KEY_MISSING') {
+      return NextResponse.json(
+        {
+          error: 'Server missing OPENAI_API_KEY. Add it to apps/web/.env.local and restart.',
+        },
+        { status: 500 }
+      );
+    }
+
+    if (msg === 'DRAFTER_OUTPUT_INVALID' || msg === 'EDITOR_OUTPUT_EMPTY') {
+      return NextResponse.json(
+        {
+          error: 'The AI returned an invalid intermediate result. Please try again.',
+        },
+        { status: 502 }
+      );
+    }
+
+    return NextResponse.json({ error: 'Unexpected error running pipeline.' }, { status: 500 });
   }
 }
