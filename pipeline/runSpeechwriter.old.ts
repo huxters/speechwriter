@@ -1,16 +1,16 @@
 import OpenAI from 'openai';
-import { buildGuardrailMessages, GuardrailResult } from './guardrail.prompt';
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions';
+import { buildGuardrailMessages, GuardrailResult } from './guardrail.prompt';
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 if (!process.env.OPENAI_API_KEY) {
   console.warn(
     '[runSpeechwriterPipeline] Missing OPENAI_API_KEY. Pipeline calls will fail until configured.'
   );
 }
+
+const MODEL = process.env.OPENAI_MODEL || 'gpt-4.1-mini';
 
 type SpeechConfig = {
   audience?: string;
@@ -44,16 +44,21 @@ type JudgeResult = {
   reason: string;
 };
 
-type PipelineResult = {
-  finalSpeech: string;
-  planner?: PlannerPlan | null;
-  judge?: JudgeResult | null;
-  trace: TraceEntry[];
+type DraftsInfo = {
+  draft1: string;
+  draft2: string;
+  winnerLabel: 'draft1' | 'draft2';
 };
 
-// ---- Helpers --------------------------------------------------
+type PipelineResult = {
+  finalSpeech: string;
+  planner: PlannerPlan | null;
+  judge: JudgeResult | null;
+  trace: TraceEntry[];
+  drafts: DraftsInfo | null;
+};
 
-const MODEL = process.env.OPENAI_MODEL || 'gpt-4.1-mini';
+// ---------- helpers ----------
 
 async function chat(messages: ChatCompletionMessageParam[]) {
   if (!process.env.OPENAI_API_KEY) {
@@ -70,6 +75,7 @@ async function chat(messages: ChatCompletionMessageParam[]) {
   if (!choice || !choice.message) {
     throw new Error('No completion returned from model.');
   }
+
   return choice.message.content ?? '';
 }
 
@@ -81,17 +87,7 @@ function safeJson<T>(raw: string): T | null {
   }
 }
 
-function normaliseList(text?: string): string[] {
-  if (!text) return [];
-  return text
-    .split(/[\n;]+/g)
-    .map(s => s.trim())
-    .filter(Boolean);
-}
-
-// ---- Prompt Builders (Planner / Drafter / Judge / Editor) ----
-// For now we keep these inline for clarity. They can be split into
-// separate files if needed.
+// ---------- Planner ----------
 
 function buildPlannerMessages(brief: string, config?: SpeechConfig): ChatCompletionMessageParam[] {
   const { audience, eventContext, tone, duration, keyPoints, redLines } = config || {};
@@ -99,13 +95,13 @@ function buildPlannerMessages(brief: string, config?: SpeechConfig): ChatComplet
   const system = `
 You are Planner, the lead strategist of a speechwriting pipeline.
 
-Turn the input and config into a precise JSON plan for a short spoken speech.
+Turn the input into a precise JSON plan for a short spoken speech.
 
 Rules:
 - Use both the free-text brief and structured fields.
 - If they conflict, trust the structured fields.
 - No fake numbers, names, or promises.
-- Output ONLY minified JSON with this shape:
+- Output ONLY JSON with this exact shape:
 
 {
   "coreMessage": string,
@@ -142,18 +138,25 @@ STRUCTURED:
   ];
 }
 
+// ---------- Drafter (2 distinct drafts) ----------
+
 function buildDrafterMessages(plan: PlannerPlan): ChatCompletionMessageParam[] {
   const system = `
 You are Drafter, a specialist in spoken-word speeches.
 
-Write TWO alternative drafts that:
-- Follow the planner JSON exactly.
-- Sound natural when spoken aloud.
-- Respect constraints.mustInclude and constraints.mustAvoid.
-- Fit approximately within the requested duration.
-- Use clear, human language.
+Using the planner JSON, produce TWO DISTINCT drafts that BOTH:
 
-Return ONLY minified JSON with this shape:
+- Follow the plan exactly.
+- Respect constraints.mustInclude (present somewhere, integrated).
+- Respect constraints.mustAvoid (do not violate).
+- Are realistic to speak aloud in the indicated duration.
+- Do not invent specific data, names, or legal/medical claims.
+
+Diversity requirements:
+- "draft1": classic, structured, measured.
+- "draft2": alternative valid take (e.g. more narrative, more energetic, or more concise), while staying professional.
+
+Return ONLY JSON:
 
 {
   "draft1": string,
@@ -169,21 +172,27 @@ Return ONLY minified JSON with this shape:
   ];
 }
 
+// ---------- Judge (order-agnostic) ----------
+
 function buildJudgeMessages(args: {
   plan: PlannerPlan;
-  draft1: string;
-  draft2: string;
+  option1: string;
+  option2: string;
 }): ChatCompletionMessageParam[] {
   const system = `
 You are Judge, selecting the better draft.
 
-Compare each draft against:
+Compare each option independently against:
 - coreMessage, audience, eventContext, tone, duration
-- constraints.mustInclude
-- constraints.mustAvoid
-- clarity, coherence, spoken delivery
+- constraints.mustInclude (present, integrated)
+- constraints.mustAvoid (no violations)
+- clarity, coherence, spoken delivery quality
 
-Return ONLY minified JSON:
+Important:
+- Do NOT assume the first option is better.
+- Evaluate both impartially and choose the stronger one.
+
+Return ONLY JSON:
 
 {
   "winner": 1 | 2,
@@ -199,28 +208,28 @@ Return ONLY minified JSON:
   ];
 }
 
+// ---------- Editor ----------
+
 function buildEditorMessages(draft: string): ChatCompletionMessageParam[] {
   const system = `
 You are Editor, finalising a spoken speech.
 
 Tighten for:
 - clarity and logical flow
-- strong open and close
 - natural spoken cadence
-- no new facts beyond the draft
+- strong open and close
+Do NOT introduce new concrete facts.
 
-Return ONLY the final speech text (no JSON, no commentary).
+Return ONLY the final speech text.
 `.trim();
-
-  const user = draft;
 
   return [
     { role: 'system', content: system },
-    { role: 'user', content: user },
+    { role: 'user', content: draft },
   ];
 }
 
-// ---- Main Orchestrator ---------------------------------------
+// ---------- Orchestrator ----------
 
 export async function runSpeechwriterPipeline(
   brief: string,
@@ -242,12 +251,12 @@ export async function runSpeechwriterPipeline(
       stage: 'planner',
       message: 'Planner: failed to parse JSON, aborting pipeline.',
     });
-
     return {
       finalSpeech: '',
       planner: null,
       judge: null,
       trace,
+      drafts: null,
     };
   }
 
@@ -259,23 +268,23 @@ export async function runSpeechwriterPipeline(
   // 2. Drafter
   trace.push({
     stage: 'drafter',
-    message: 'Drafter: creating two candidate drafts.',
+    message: 'Drafter: creating two stylistically distinct candidate drafts.',
   });
 
   const drafterRaw = await chat(buildDrafterMessages(planner));
-  const drafts = safeJson<{ draft1: string; draft2: string }>(drafterRaw);
+  const draftsJson = safeJson<{ draft1: string; draft2: string }>(drafterRaw);
 
-  if (!drafts?.draft1 || !drafts?.draft2) {
+  if (!draftsJson?.draft1 || !draftsJson?.draft2) {
     trace.push({
       stage: 'drafter',
-      message: 'Drafter: invalid response; cannot continue.',
+      message: 'Drafter: invalid JSON; aborting pipeline.',
     });
-
     return {
       finalSpeech: '',
       planner,
       judge: null,
       trace,
+      drafts: null,
     };
   }
 
@@ -284,46 +293,67 @@ export async function runSpeechwriterPipeline(
     message: 'Drafter: produced 2 drafts.',
   });
 
-  // 3. Judge
+  // 3. Judge with randomised order
   trace.push({
     stage: 'judge',
-    message: 'Judge: evaluating drafts.',
+    message: 'Judge: evaluating drafts (order randomised to reduce bias).',
   });
+
+  type Variant = { label: 'draft1' | 'draft2'; text: string };
+
+  let variants: [Variant, Variant] = [
+    { label: 'draft1', text: draftsJson.draft1 },
+    { label: 'draft2', text: draftsJson.draft2 },
+  ];
+
+  if (Math.random() < 0.5) {
+    variants = [variants[1], variants[0]];
+  }
 
   const judgeRaw = await chat(
     buildJudgeMessages({
       plan: planner,
-      draft1: drafts.draft1,
-      draft2: drafts.draft2,
+      option1: variants[0].text,
+      option2: variants[1].text,
     })
   );
   const judge = safeJson<JudgeResult>(judgeRaw);
 
-  let winnerDraft = drafts.draft1;
+  let winnerLabel: 'draft1' | 'draft2' = 'draft1';
+  let winnerDraft = draftsJson.draft1;
 
   if (judge && (judge.winner === 1 || judge.winner === 2)) {
-    winnerDraft = judge.winner === 1 ? drafts.draft1 : drafts.draft2;
+    const chosen = variants[judge.winner - 1];
+    winnerLabel = chosen.label;
+    winnerDraft = chosen.text;
     trace.push({
       stage: 'judge',
-      message: `Judge: selected draft ${judge.winner} — ${judge.reason}`,
+      message: `Judge: selected ${winnerLabel} (reported as option ${judge.winner}) — ${judge.reason}`,
     });
   } else {
     trace.push({
       stage: 'judge',
-      message: 'Judge: failed to return valid JSON; defaulting to draft 1.',
+      message: 'Judge: invalid JSON; defaulting to draft1 without confidence.',
     });
   }
 
-  // 4. Guardrail v1
+  const drafts: DraftsInfo = {
+    draft1: draftsJson.draft1,
+    draft2: draftsJson.draft2,
+    winnerLabel,
+  };
+
+  // 4. Guardrail
+  trace.push({
+    stage: 'guardrail',
+    message: 'Guardrail: checking winning draft against constraints and safety.',
+  });
+
   const mustInclude = planner.constraints?.mustInclude || [];
   const mustAvoid = planner.constraints?.mustAvoid || [];
 
-  trace.push({
-    stage: 'guardrail',
-    message: 'Guardrail: checking draft against constraints and safety.',
-  });
-
   let guardrailResult: GuardrailResult | null = null;
+  let guardedDraft = winnerDraft;
 
   try {
     const guardrailRaw = await chat(
@@ -334,7 +364,6 @@ export async function runSpeechwriterPipeline(
       })
     );
     const parsed = safeJson<GuardrailResult>(guardrailRaw);
-
     if (parsed && parsed.safeText) {
       guardrailResult = parsed;
     }
@@ -344,8 +373,6 @@ export async function runSpeechwriterPipeline(
       message: `Guardrail: error (${err?.message || 'unknown error'}) — using judged draft as-is.`,
     });
   }
-
-  let guardedDraft = winnerDraft;
 
   if (guardrailResult) {
     if (guardrailResult.status === 'ok') {
@@ -365,7 +392,6 @@ export async function runSpeechwriterPipeline(
         stage: 'guardrail',
         message: `Guardrail: flagged concerns. Issues: ${guardrailResult.issues.join('; ')}`,
       });
-      // We still pass the "safeText" variant forward, but the trace is explicit.
       guardedDraft = guardrailResult.safeText;
     }
   } else {
@@ -378,7 +404,7 @@ export async function runSpeechwriterPipeline(
   // 5. Editor
   trace.push({
     stage: 'editor',
-    message: 'Editor: tightening winning draft for spoken delivery.',
+    message: 'Editor: tightening guardrailed draft for spoken delivery.',
   });
 
   const finalSpeech = await chat(buildEditorMessages(guardedDraft));
@@ -393,5 +419,6 @@ export async function runSpeechwriterPipeline(
     planner,
     judge: judge || null,
     trace,
+    drafts,
   };
 }

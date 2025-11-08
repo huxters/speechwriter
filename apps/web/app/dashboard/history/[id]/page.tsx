@@ -1,25 +1,15 @@
 import { createClient } from '@/lib/supabase/server';
-import { redirect, notFound } from 'next/navigation';
-import Link from 'next/link';
+import { redirect } from 'next/navigation';
 
-type SpeechRow = {
-  id: string;
-  created_at: string;
-  brief: string;
-  audience: string | null;
-  event_context: string | null;
-  tone: string | null;
-  duration: string | null;
-  key_points: string | null;
-  red_lines: string | null;
-  final_speech: string;
+type TraceEntry = { stage: string; message: string };
+
+type DraftsInfo = {
+  draft1: string;
+  draft2: string;
+  winnerLabel: 'draft1' | 'draft2';
 };
 
-interface PageProps {
-  params: { id: string };
-}
-
-export default async function SpeechDetailPage({ params }: PageProps) {
+export default async function HistoryDetailPage({ params }: { params: { id: string } }) {
   const supabase = await createClient();
   const {
     data: { session },
@@ -35,32 +25,27 @@ export default async function SpeechDetailPage({ params }: PageProps) {
       `
       id,
       created_at,
+      user_id,
       brief,
-      audience,
-      event_context,
-      tone,
-      duration,
-      key_points,
-      red_lines,
-      final_speech
+      final_speech,
+      planner,
+      judge,
+      trace,
+      drafts
     `
     )
     .eq('id', params.id)
-    .eq('user_id', session.user.id)
-    .maybeSingle();
+    .single();
 
-  if (error) {
-    console.error('Error loading speech:', error);
-    // Avoid leaking internals; just show not found.
-    notFound();
+  if (error || !data) {
+    console.error('History detail error:', error);
+    redirect('/dashboard/history');
   }
 
-  if (!data) {
-    notFound();
-  }
+  const trace: TraceEntry[] = data.trace || [];
+  const drafts: DraftsInfo | null = data.drafts || null;
 
-  const speech = data as SpeechRow;
-  const created = new Date(speech.created_at);
+  const created = new Date(data.created_at);
   const createdLabel = created.toLocaleString(undefined, {
     year: 'numeric',
     month: 'short',
@@ -69,41 +54,11 @@ export default async function SpeechDetailPage({ params }: PageProps) {
     minute: '2-digit',
   });
 
-  const Section = ({ label, value }: { label: string; value: string | null }) => {
-    if (!value || !value.trim()) return null;
-    return (
-      <div style={{ marginBottom: 8 }}>
-        <div
-          style={{
-            fontSize: 10,
-            fontWeight: 600,
-            textTransform: 'uppercase',
-            letterSpacing: '0.14em',
-            color: '#9ca3af',
-            marginBottom: 2,
-          }}
-        >
-          {label}
-        </div>
-        <div
-          style={{
-            fontSize: 12,
-            color: '#374151',
-            whiteSpace: 'pre-wrap',
-          }}
-        >
-          {value}
-        </div>
-      </div>
-    );
-  };
-
   return (
     <main
       style={{
-        minHeight: '100vh',
         padding: '2rem',
-        maxWidth: 900,
+        maxWidth: 1120,
         margin: '0 auto',
         fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif',
       }}
@@ -112,144 +67,164 @@ export default async function SpeechDetailPage({ params }: PageProps) {
         style={{
           fontSize: 10,
           textTransform: 'uppercase',
-          letterSpacing: '0.16em',
+          letterSpacing: '0.18em',
           color: '#9ca3af',
           marginBottom: 4,
         }}
       >
-        Dashboard / History / {speech.id.slice(0, 6)}
+        Run Detail
       </p>
-
-      <div
+      <h1
         style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          gap: 12,
-          alignItems: 'baseline',
-          marginBottom: 8,
+          fontSize: 24,
+          fontWeight: 600,
+          margin: 0,
+          marginBottom: 4,
         }}
       >
-        <h1
-          style={{
-            fontSize: 24,
-            fontWeight: 600,
-            margin: 0,
-          }}
-        >
-          Saved Speech
-        </h1>
-        <div
-          style={{
-            fontSize: 10,
-            color: '#9ca3af',
-          }}
-        >
-          Created {createdLabel}
-        </div>
-      </div>
-
-      <div
+        Speech run {data.id}
+      </h1>
+      <p
         style={{
-          marginBottom: 16,
           fontSize: 11,
           color: '#6b7280',
+          marginBottom: 18,
         }}
       >
-        This is a snapshot of what the system generated at the time. Use it as a working draft; you
-        can always create new versions from{' '}
-        <Link href="/dashboard/generate" style={{ color: '#111827', textDecoration: 'underline' }}>
-          New Speech
-        </Link>
-        .
-      </div>
+        {createdLabel} · user {data.user_id}
+      </p>
 
-      {/* Input summary card */}
       <section
         style={{
-          marginBottom: 16,
-          padding: '12px 14px',
-          borderRadius: 14,
+          marginBottom: 18,
+          padding: 12,
+          borderRadius: 12,
           border: '1px solid #e5e7eb',
-          backgroundColor: '#f9fafb',
-          boxShadow: '0 4px 14px rgba(15,23,42,0.03)',
+          background: '#f9fafb',
+          fontSize: 11,
         }}
       >
-        <Section label="Core Brief" value={speech.brief} />
-        <Section label="Audience" value={speech.audience} />
-        <Section label="Event / Moment Context" value={speech.event_context} />
-        <Section label="Tone / Style" value={speech.tone} />
-        <Section label="Target Duration / Length" value={speech.duration} />
-        <Section label="Must-Include Points" value={speech.key_points} />
-        <Section label="Red Lines / Must-Avoid" value={speech.red_lines} />
-      </section>
-
-      {/* Final speech card */}
-      <section
-        style={{
-          padding: '14px 16px',
-          borderRadius: 14,
-          border: '1px solid #e5e7eb',
-          backgroundColor: '#ffffff',
-          boxShadow: '0 6px 18px rgba(15,23,42,0.05)',
-        }}
-      >
+        <strong>Brief</strong>
         <div
           style={{
-            fontSize: 12,
-            fontWeight: 600,
-            marginBottom: 6,
-            color: '#111827',
-          }}
-        >
-          Final Speech
-        </div>
-        <div
-          style={{
-            fontSize: 13,
-            lineHeight: 1.6,
-            color: '#111827',
+            marginTop: 4,
             whiteSpace: 'pre-wrap',
           }}
         >
-          {speech.final_speech}
+          {data.brief}
         </div>
       </section>
 
-      <div
+      {drafts ? (
+        <section
+          style={{
+            marginBottom: 18,
+            display: 'grid',
+            gridTemplateColumns: '1fr 1fr',
+            gap: 12,
+          }}
+        >
+          <div
+            style={{
+              padding: 10,
+              borderRadius: 12,
+              border: '1px solid #e5e7eb',
+              background: drafts.winnerLabel === 'draft1' ? '#eef2ff' : '#ffffff',
+              fontSize: 11,
+              whiteSpace: 'pre-wrap',
+            }}
+          >
+            <div
+              style={{
+                fontWeight: 600,
+                marginBottom: 4,
+              }}
+            >
+              Draft 1 {drafts.winnerLabel === 'draft1' ? '(selected)' : ''}
+            </div>
+            {drafts.draft1}
+          </div>
+          <div
+            style={{
+              padding: 10,
+              borderRadius: 12,
+              border: '1px solid #e5e7eb',
+              background: drafts.winnerLabel === 'draft2' ? '#eef2ff' : '#ffffff',
+              fontSize: 11,
+              whiteSpace: 'pre-wrap',
+            }}
+          >
+            <div
+              style={{
+                fontWeight: 600,
+                marginBottom: 4,
+              }}
+            >
+              Draft 2 {drafts.winnerLabel === 'draft2' ? '(selected)' : ''}
+            </div>
+            {drafts.draft2}
+          </div>
+        </section>
+      ) : (
+        <section
+          style={{
+            marginBottom: 18,
+            padding: 10,
+            borderRadius: 12,
+            border: '1px solid #e5e7eb',
+            fontSize: 11,
+            color: '#9ca3af',
+          }}
+        >
+          Drafts not recorded for this run (older pipeline version).
+        </section>
+      )}
+
+      <section
         style={{
-          marginTop: 18,
-          fontSize: 10,
-          display: 'flex',
-          gap: 12,
+          marginBottom: 18,
+          padding: 12,
+          borderRadius: 12,
+          border: '1px solid #e5e7eb',
+          fontSize: 11,
         }}
       >
-        <Link
-          href="/dashboard/history"
+        <strong>Final Speech</strong>
+        <div
           style={{
-            textDecoration: 'none',
-            color: '#111827',
-            padding: '6px 10px',
-            borderRadius: 999,
-            border: '1px solid #e5e7eb',
-            background: '#ffffff',
+            marginTop: 4,
+            whiteSpace: 'pre-wrap',
           }}
         >
-          ← Back to history
-        </Link>
-        <Link
-          href="/dashboard/generate"
+          {data.final_speech}
+        </div>
+      </section>
+
+      <section
+        style={{
+          padding: 12,
+          borderRadius: 12,
+          border: '1px solid #e5e7eb',
+          fontSize: 10,
+          background: '#fafafa',
+        }}
+      >
+        <strong>Pipeline Trace</strong>
+        <ul
           style={{
-            textDecoration: 'none',
-            color: '#ffffff',
-            padding: '6px 12px',
-            borderRadius: 999,
-            background: '#111827',
-            border: '1px solid #111827',
+            margin: 0,
+            marginTop: 4,
+            paddingLeft: 16,
+            listStyle: 'disc',
           }}
         >
-          New speech
-        </Link>
-      </div>
+          {trace.map((t, idx) => (
+            <li key={idx}>
+              [{t.stage}] {t.message}
+            </li>
+          ))}
+        </ul>
+      </section>
     </main>
   );
 }
