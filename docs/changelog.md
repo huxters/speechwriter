@@ -42,3 +42,53 @@
 
 - Phase C₀ — Productise MVP: Complete
 - Next: Phase C — use structured inputs and clearer constraints to improve pipeline intelligence
+
+### v1.3 — 2025-11-08
+
+**Overview**
+
+- Extended Speechwriter pipeline to accept structured config:
+  - audience, eventContext, tone, duration, keyPoints, redLines.
+- Updated `plannerPrompt`:
+  - Consumes both free-text brief and structured config.
+  - Emits a strict JSON plan including constraints (mustInclude / mustAvoid).
+- Updated `judgePrompt`:
+  - Scores drafts against the planner JSON and constraints.
+  - Returns explicit winner + reason (minified JSON).
+- Updated `runSpeechwriterPipeline`:
+  - Accepts `SpeechConfig`.
+  - Passes config into Planner and Judge.
+  - Preserves trace output and final speech.
+- Updated `/api/speechwriter`:
+  - Validates brief.
+  - Accepts structured fields, sanitises, passes as `SpeechConfig`.
+- Updated `/dashboard/generate`:
+  - Structured inputs surfaced in UI and wired to API.
+  - Live stage indicator and optional trace retained.
+
+**Status**
+
+- Phase C₀ (Productise MVP): ✅
+- Phase C₁ (Structured Intelligence): ✅ first slice (plan/judge wired to structured inputs)
+- Next: C₂ — persistence & history (see roadmap in docs/spec.md).
+
+### v1.4 — 2025-11-08
+
+**Overview**
+
+- Added persistent run history for Speechwriter.
+- Each successful pipeline run is now stored in `public.speeches` (scoped by `user_id`).
+- RLS policies ensure users can only access their own speeches.
+- `/api/speechwriter`:
+  - On success, attempts to insert a row into `speeches`.
+  - Appends a `persistence` entry into the trace indicating save/skip/failure.
+- New UI:
+  - `/dashboard/history` lists recent speeches with brief + snippet.
+  - `/dashboard/history/[id]` shows full brief, structured fields, and final speech.
+- Behaviour:
+  - History only for authenticated users.
+  - If persistence fails, the user still gets their speech (failure is logged only in trace).
+
+**Status**
+
+- Phase C₂ (Run History & Persistence): ✅

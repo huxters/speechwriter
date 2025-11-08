@@ -1,8 +1,18 @@
 // -----------------------------
-// Speechwriter Pipeline Orchestrator
+// Speechwriter Pipeline Orchestrator (Phase C)
 // -----------------------------
 // Runs: Planner → Drafter → Judge → Guardrail (stub) → Editor
-// Returns final speech + structured trace for debugging/inspection.
+// Accepts:
+//  - userBrief: string
+//  - config: {
+//      audience?,
+//      eventContext?,
+//      tone?,
+//      duration?,
+//      keyPoints?,
+//      redLines?
+//    }
+// Returns finalSpeech + planner + judge + trace[].
 // -----------------------------
 
 import OpenAI from 'openai';
@@ -23,7 +33,19 @@ type PipelineTraceEntry = {
   message: string;
 };
 
-export async function runSpeechwriterPipeline(userBrief: string): Promise<{
+export type SpeechConfig = {
+  audience?: string;
+  eventContext?: string;
+  tone?: string;
+  duration?: string;
+  keyPoints?: string;
+  redLines?: string;
+};
+
+export async function runSpeechwriterPipeline(
+  userBrief: string,
+  config: SpeechConfig = {}
+): Promise<{
   finalSpeech: string;
   planner: any;
   judge: { winner: number; reason: string };
@@ -40,14 +62,20 @@ export async function runSpeechwriterPipeline(userBrief: string): Promise<{
   // 1. Planner
   trace.push({
     stage: 'planner',
-    message: `Planner: generating structured plan from brief starting with: "${briefSnippet}"`,
+    message: `Planner: generating structured plan from brief starting with: "` + briefSnippet + `"`,
   });
 
   const plannerRes = await client.chat.completions.create({
     model: 'gpt-4.1-mini',
     messages: [
       { role: 'system', content: plannerPrompt },
-      { role: 'user', content: userBrief },
+      {
+        role: 'user',
+        content: JSON.stringify({
+          brief: userBrief,
+          config,
+        }),
+      },
     ],
   });
 
@@ -69,7 +97,12 @@ export async function runSpeechwriterPipeline(userBrief: string): Promise<{
     model: 'gpt-4.1-mini',
     messages: [
       { role: 'system', content: drafterPrompt },
-      { role: 'user', content: JSON.stringify(plannerJson) },
+      {
+        role: 'user',
+        content: JSON.stringify({
+          planner: plannerJson,
+        }),
+      },
     ],
   });
 
@@ -92,7 +125,7 @@ export async function runSpeechwriterPipeline(userBrief: string): Promise<{
   // 3. Judge
   trace.push({
     stage: 'judge',
-    message: 'Judge: evaluating drafts and selecting a winner.',
+    message: 'Judge: evaluating drafts against plan and constraints.',
   });
 
   const judgeRes = await client.chat.completions.create({
@@ -101,7 +134,11 @@ export async function runSpeechwriterPipeline(userBrief: string): Promise<{
       { role: 'system', content: judgePrompt },
       {
         role: 'user',
-        content: JSON.stringify({ planner: plannerJson, draft1, draft2 }),
+        content: JSON.stringify({
+          planner: plannerJson,
+          draft1,
+          draft2,
+        }),
       },
     ],
   });

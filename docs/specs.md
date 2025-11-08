@@ -1,228 +1,261 @@
-# Speechwriter / Micro-Factory MVP — Product Specification
+# Speechwriter / Micro-Factory MVP — Full Product Specification
 
-_v1.2 – 2025-11-08_
-
----
-
-## 1. Purpose
-
-Speechwriter is the first live instantiation of the wider **Micro-Factory System** — a modular environment for producing founder-grade AI products with disciplined architecture, human-centred UX, and transparent reasoning flows.
-
-The primary objective of this MVP is to **prove the end-to-end pipeline pattern** that later Micro-Factory products will inherit:
-
-> Planner → Drafter → Judge → Guardrail → Editor → Output
-
-Speechwriter makes that architecture visible: it turns a brief into a structured, spoken-ready final draft while exposing the reasoning chain.
-
-Longer-term, this architecture underpins a multi-product ecosystem (Speechwriter, Decision Engine, Perspective Engine, etc.), all sharing a common pipeline, identity model, and admin console.
+_v1.3 — 2025-11-08_  
+_(Author: S. Highlander)_
 
 ---
 
-## 2. Current Scope (Phase C₀ Complete)
+## 1. Vision and Context
 
-| Element                   | Status | Description                                                                                                                                       |
-| ------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Canonical Pipeline**    | ✅     | Single orchestrated flow: Planner → Drafter → Judge → Guardrail (stub) → Editor.                                                                  |
-| **Dashboard Integration** | ✅     | `/dashboard/generate` uses the live pipeline via `/api/speechwriter`. This is the primary UX surface.                                             |
-| **Internal Debug Page**   | ✅     | `/speechwriter` retained as a developer-facing page for direct testing and trace inspection.                                                      |
-| **Trace Visibility**      | ✅     | Pipeline returns a structured `trace[]`; dashboard offers a "Show debug trace" toggle.                                                            |
-| **Live Stage Indicator**  | ✅     | While running, the dashboard shows a stage label stepping through Planner → Drafter → Judge → Guardrail → Editor (UX hint aligned with pipeline). |
-| **Validation & Limits**   | ✅     | Input constrained to 2000 characters with front-end and back-end checks; over-limit submissions blocked clearly.                                  |
-| **Error Handling**        | ✅     | Known failure modes mapped to user-readable messages; unexpected errors return a generic safe failure.                                            |
-| **Auth & Infra**          | ⚙️     | Supabase auth present; no speech run persistence yet.                                                                                             |
-| **Docs & Versioning**     | ✅     | `docs/spec.md` (snapshot) + `docs/changelog.md` (history) maintained and versioned.                                                               |
+Speechwriter is the **first deployed product** of the **Micro-Factory System** — a modular architecture for producing tightly-scoped, high-integrity AI applications with transparent reasoning, founder-grade polish, and complete local control.
+
+Its purpose is to **demonstrate the Micro-Factory pipeline model in production**:  
+a single composable orchestration pattern  
+`Planner → Drafter → Judge → Guardrail → Editor`,  
+wrapped in a clean UX and backed by auditable trace data.
+
+This product is not about speechwriting per se; it is about **building the infrastructure and discipline** that will allow future tools (Decision Engine, Perspective Engine, etc.) to share the same backbone.
 
 ---
 
-## 3. System Architecture
+## 2. Product Objectives
 
-```
-root/
-├── apps/
-│   └── web/
-│       └── app/
-│           ├── dashboard/
-│           │   └── generate/        # Primary New Speech UI (uses pipeline)
-│           ├── speechwriter/        # Internal debug UI (same pipeline)
-│           ├── api/
-│           │   └── speechwriter/
-│           │       └── route.ts     # Next.js API route → runSpeechwriterPipeline
-│           └── layout.tsx / globals.css
-├── pipeline/
-│   ├── runSpeechwriter.ts           # Orchestrator (Planner → … → Editor)
-│   ├── planner.prompt.ts
-│   ├── drafter.prompt.ts
-│   ├── judge.prompt.ts
-│   ├── guardrail.prompt.ts
-│   └── editor.prompt.ts
-├── docs/
-│   ├── spec.md
-│   └── changelog.md
-└── ...
-```
-
-**Stack**
-
-- Framework: Next.js 14 (App Router)
-- Language: TypeScript
-- Database: Supabase (PostgreSQL + RLS)
-- Styling: Tailwind CSS
-- Auth: Supabase Magic Link (Email OTP)
-- AI Orchestration: OpenAI API (official client)
+1. **Demonstrate the pipeline contract** end-to-end inside a live Next.js app.
+2. **Provide a usable prototype** for professionals who want to convert structured ideas into spoken-ready drafts.
+3. **Prove design integrity:** consistent prompts, explicit JSON hand-offs, robust orchestration, inspectable reasoning.
+4. **Lay the groundwork for persistence, analytics, and guardrails.**
 
 ---
 
-## 4. Pipeline Overview
+## 3. Functional Summary (v1.3)
 
-Each stage is implemented as a dedicated prompt + model call.  
-`runSpeechwriterPipeline()` coordinates all stages and returns both the final speech and a machine-readable trace.
-
-### 4.1 Stages
-
-| Stage         | Responsibility                                                                                  | Output                      |
-| ------------- | ----------------------------------------------------------------------------------------------- | --------------------------- |
-| **Planner**   | Convert the raw brief into a structured JSON plan: core message, audience summary, pillars.     | `planner: object`           |
-| **Drafter**   | Generate two alternative drafts based on the plan.                                              | `draft1`, `draft2`          |
-| **Judge**     | Compare drafts against the plan; select winner with a short justification.                      | `judge: { winner, reason }` |
-| **Guardrail** | Placeholder for safety/factual checks. MVP always returns `"OK"`.                               | `"OK"`                      |
-| **Editor**    | Refine the winning draft for spoken delivery: clarity, rhythm, strong open/close; no new facts. | `finalSpeech: string`       |
-
-### 4.2 Trace
-
-The orchestrator builds a `trace: { stage, message }[]` log, e.g.:
-
-```ts
-[
-  {
-    stage: 'planner',
-    message: 'Planner: generating structured plan from brief starting with: "..."',
-  },
-  { stage: 'planner', message: 'Planner: completed and JSON parsed.' },
-  { stage: 'drafter', message: 'Drafter: produced 2 drafts.' },
-  { stage: 'judge', message: 'Judge: selected draft 2 — clearer focus on core message.' },
-  { stage: 'guardrail', message: 'Guardrail: OK.' },
-  { stage: 'editor', message: 'Editor: final speech ready.' },
-];
-```
-
-The API returns:
-
-```ts
-{
-  finalSpeech,
-  planner,
-  judge: { winner, reason },
-  trace
-}
-```
+| Layer                     | Status    | Description                                                                                                      |
+| ------------------------- | --------- | ---------------------------------------------------------------------------------------------------------------- |
+| **Pipeline Orchestrator** | ✅        | `runSpeechwriterPipeline`: executes Planner → Drafter → Judge → Guardrail (stub) → Editor with structured trace. |
+| **Structured Input Form** | ✅        | `/dashboard/generate` captures brief, audience, context, tone, duration, must-include, must-avoid.               |
+| **Planner Prompt**        | ✅        | Combines brief + config → emits strict JSON plan.                                                                |
+| **Drafter Prompt**        | ✅        | Produces two candidate drafts for evaluation.                                                                    |
+| **Judge Prompt**          | ✅        | Scores drafts vs plan & constraints → returns winner + reason.                                                   |
+| **Guardrail Prompt**      | ✅ (stub) | Placeholder for future safety / consistency enforcement.                                                         |
+| **Editor Prompt**         | ✅        | Refines winning draft for cadence and clarity.                                                                   |
+| **API Route**             | ✅        | `/api/speechwriter` validates inputs, calls orchestrator, returns `{finalSpeech, trace, planner, judge}`.        |
+| **UI Integration**        | ✅        | `/dashboard/generate` → structured form + live stage indicator + optional trace.                                 |
+| **Auth Layer**            | ✅        | Supabase magic-link; `/dashboard/*` server-side protected.                                                       |
+| **Persistence**           | ⏳        | Next milestone (Phase C₂).                                                                                       |
+| **Admin Console**         | ⏳        | Planned (Phase D).                                                                                               |
+| **Guardrail v1**          | ⏳        | Planned (Phase E).                                                                                               |
+| **CI Workflow**           | 🚫        | Temporarily disabled (`.github/workflows/ci.yml`).                                                               |
 
 ---
 
-## 5. UX Behaviour
+## 4. Repository Architecture
 
-### 5.1 `/dashboard/generate` (Primary User Flow)
+    root/
+    ├── apps/
+    │   └── web/
+    │       └── app/
+    │           ├── dashboard/
+    │           │   ├── page.tsx              # Auth-protected dashboard
+    │           │   └── generate/page.tsx     # Structured speech form → API
+    │           ├── speechwriter/page.tsx     # Internal debug surface
+    │           ├── api/speechwriter/route.ts # POST → runSpeechwriterPipeline
+    │           ├── login/, callback/         # Supabase auth
+    │           ├── layout.tsx, globals.css
+    │           └── ...
+    ├── pipeline/
+    │   ├── runSpeechwriter.ts
+    │   ├── planner.prompt.ts
+    │   ├── drafter.prompt.ts
+    │   ├── judge.prompt.ts
+    │   ├── guardrail.prompt.ts
+    │   └── editor.prompt.ts
+    ├── docs/
+    │   ├── spec.md
+    │   └── changelog.md
+    └── sql/seed.sql (auth + profiles)
 
-- Dark themed “New Speech” page.
-- User pastes or writes a brief (up to 2000 characters).
-- On submit:
-  - Button shows `Running pipeline...`.
-  - A live label shows the current stage name in sequence (Planner → Drafter → Judge → Guardrail → Editor) while the request is in flight.
-  - On success: final speech appears.
-  - A small “Show debug trace” toggle reveals the internal stage-by-stage trace (for QA and power users).
-
-### 5.2 `/speechwriter` (Internal Debug Surface)
-
-- Mirrors the same pipeline but is positioned as an internal/testing route.
-- Always shows the trace; used for development and inspection.
-- Not the primary end-user entry point.
-
----
-
-## 6. Design Principles
-
-1. **Single Source of Truth**
-   - One orchestrator (`runSpeechwriterPipeline`) and one API (`/api/speechwriter`) used by all UIs.
-
-2. **Transparency without Noise**
-   - End users see a clean experience; trace is available but optional.
-   - Developers have `/speechwriter` for full visibility.
-
-3. **Fail Safely**
-   - Invalid model outputs trigger controlled fallbacks or clear errors.
-   - Over-long or malformed inputs are rejected explicitly.
-
-4. **Extensibility**
-   - Pipeline stages are modular.
-   - Future products can reuse the same pattern with different prompts or evaluators.
-
-5. **No Premature Complexity**
-   - No RAG, no streaming infra, no external agents at this stage.
-   - Those are earned later if justified by real constraints.
+**Stack:** Next.js 14 (App Router) · TypeScript · Supabase (PostgreSQL + RLS) · Tailwind · OpenAI API.
 
 ---
 
-## 7. Roadmap
+## 5. Data Contracts
 
-### Completed
+### 5.1 Input (Client → API)
 
-- **Phase A – Functional Scaffolding**  
-  Base app, auth, structure, docs.
+    {
+      brief: string;               // required ≤2000 chars
+      audience?: string;
+      eventContext?: string;
+      tone?: string;
+      duration?: string;
+      keyPoints?: string;          // "must include"
+      redLines?: string;           // "must avoid"
+    }
 
-- **Phase B – End-to-End Pipeline MVP**  
-  Planner → Editor with visible trace.
+### 5.2 Internal Config Type
 
-- **Phase B.1 – Stabilisation & Testing**  
-  Input limits, error handling, consistent trace.
+    type SpeechConfig = {
+      audience?: string;
+      eventContext?: string;
+      tone?: string;
+      duration?: string;
+      keyPoints?: string;
+      redLines?: string;
+    };
 
-- **Phase C₀ – Productise MVP**  
-  `/dashboard/generate` wired to live pipeline; `/speechwriter` as debug.
+### 5.3 Planner Output Schema
 
-### Next
-
-- **Phase C – Intelligent Enhancements**
-
-  Focus: make outputs systematically better using structured inputs and clearer criteria, without changing the pipeline skeleton.
-
-  Initial scope:
-  - Extend the “New Speech” form with structured fields:
-    - audience, event context, duration, tone, must-include points, red lines.
-  - Feed these into `plannerPrompt` as explicit, typed context.
-  - Update `judgePrompt`:
-    - score drafts on faithfulness to plan, clarity, spoken cadence, constraint adherence.
-  - Update `editorPrompt`:
-    - respect style and constraints from the plan.
-  - Keep the same return shape (`finalSpeech`, `planner`, `judge`, `trace`).
-
-- **Phase D – Admin & Observer Console**
-  - Runs history, metadata, environment flags.
-  - View per-stage raw outputs for a given run.
-  - Versioned prompt sets (A/B testing, rollback).
-
-- **Phase E – Micro-Factory Integration**
-  - Extract this repo into a template for new products.
-  - Shared admin console, shared pipeline library.
-  - Consistent identity & permissions model across products.
+    {
+      coreMessage: string;
+      audience: string;
+      eventContext: string;
+      tone: string;
+      duration: string;
+      pillars: { title: string; summary: string }[];
+      constraints: {
+        mustInclude: string[];
+        mustAvoid: string[];
+      };
+    }
 
 ---
 
-## 8. Operating Conventions
+## 6. Pipeline Stages (Logical Contract)
 
-- Use **Start Web** / **Stop Server** tasks to run locally.
-- Keep all orchestration logic in `/pipeline`, not inside pages.
-- Any new product or feature should:
-  - Plug into the existing pipeline pattern, or
-  - Introduce a new pipeline file alongside `runSpeechwriter.ts` with the same architectural style.
+### 6.1 Planner
+
+- Synthesises structured JSON plan.
+- If conflict between free text & config → config wins.
+- No invented facts.
+
+### 6.2 Drafter
+
+- Generates two alternative drafts (`draft1`, `draft2`).
+- Each adheres to planner JSON.
+- Output parsed to plain text.
+
+### 6.3 Judge
+
+- Evaluates both drafts vs planner.
+- Criteria: message fit · constraints · clarity · tone · length.
+- Returns JSON:
+  { winner: 1 | 2; reason: string }
+
+### 6.4 Guardrail (MVP)
+
+- Placeholder returning `"OK"`.
+- Will evolve to enforce factual, tonal, and taboo constraints.
+
+### 6.5 Editor
+
+- Final polish for spoken delivery:
+  - Short sentences · clear rhythm · strong open / close.
+  - No new information beyond previous stages.
 
 ---
 
-## 9. Strategic Note
+## 7. Orchestrator — `runSpeechwriterPipeline`
 
-Speechwriter’s role is to **prove the Micro-Factory pattern in public**:
+    runSpeechwriterPipeline(
+      userBrief: string,
+      config?: SpeechConfig
+    ): Promise<{
+      finalSpeech: string;
+      planner: any;
+      judge: { winner: number; reason: string };
+      trace: { stage: string; message: string }[];
+    }>
 
-- A visible, defensible reasoning chain.
-- A disciplined, template-able codebase.
-- A working example where the machine handles structure and synthesis, and the human retains judgment and ownership.
+**Responsibilities**
 
-This is the spine future products will stand on.
+- Validate input and API keys.
+- Call each stage sequentially.
+- Parse / recover from JSON errors.
+- Push readable messages into `trace[]`.
+- Return canonical response to API layer.
+
+**Trace Example**
+
+    [
+      { stage: "planner",   message: "Planner JSON parsed OK" },
+      { stage: "drafter",   message: "2 drafts generated" },
+      { stage: "judge",     message: "Draft 1 selected – clearer, stronger tone" },
+      { stage: "guardrail", message: "Guardrail OK" },
+      { stage: "editor",    message: "Final speech ready" }
+    ]
 
 ---
+
+## 8. API Route — `/api/speechwriter/route.ts`
+
+1. Validate request (brief present ≤2000 chars).
+2. Build `SpeechConfig`.
+3. Call `runSpeechwriterPipeline(brief, config)`.
+4. Return `{ finalSpeech, trace, planner, judge }`.
+5. In Phase C₂, append DB insert for persistence.
+
+---
+
+## 9. Front-End Behaviour
+
+### `/dashboard/generate`
+
+- Auth-protected form.
+- Fields: core brief + six constraints.
+- Shows stage indicator while running.
+- Returns final speech + optional trace.
+- Validates client-side length; disables submit if invalid.
+
+### `/speechwriter`
+
+- Internal debug version.
+- Always visible trace; used for pipeline QA.
+
+---
+
+## 10. Design Principles
+
+1. **Single Orchestrator Pattern** — all logic flows through one function.
+2. **Transparency without noise** — traces exist but remain optional.
+3. **Constraint-Driven Generation** — explicit mustInclude / mustAvoid.
+4. **Fail-Safe Defaults** — handle malformed JSON gracefully.
+5. **Composable** — future products reuse the same interfaces.
+6. **Human-Centric Delivery** — optimise outputs for clarity, not token count.
+7. **Aesthetic Discipline** — minimal, functional UI until full design pass.
+
+---
+
+## 11. Forward Roadmap
+
+| Phase  | Title                            | Goals                                                                                                        |
+| ------ | -------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| **C₂** | **Run History & Persistence**    | Add `/dashboard/history` + Supabase `speeches` table to store past runs (brief, config, output, trace meta). |
+| **D**  | **Admin / Observer Console**     | Inspect all runs, traces, prompt versions, model usage.                                                      |
+| **E**  | **Guardrail v1**                 | Real rule checking (no taboo topics, plausibility test, tone safety).                                        |
+| **F**  | **Micro-Factory Generalisation** | Extract pipeline library → apply to Decision Engine, Perspective Engine, etc.                                |
+
+---
+
+## 12. Strategic Note
+
+Speechwriter is not the end product; it is the **live reference implementation** of the Micro-Factory approach:
+
+- Policy and structure first.
+- Transparent pipelines.
+- Clean contracts between UX and orchestration.
+- Easy to extend into a portfolio of focused AI tools.
+
+All subsequent work should preserve this pattern.
+
+### v1.4 Addendum — Persistence & History
+
+- Introduced `public.speeches` table with `user_id` FK to `auth.users`.
+- RLS:
+  - Insert / select / update / delete limited to `auth.uid() = user_id`.
+- `/api/speechwriter` on successful run:
+  - Inserts `{ user_id, brief, audience, event_context, tone, duration, key_points, red_lines, final_speech, planner, judge, trace }`.
+  - Adds a `persistence` trace message describing outcome.
+- `/dashboard/history`:
+  - Auth-protected list of user’s speeches (most recent first).
+  - Click-through to `/dashboard/history/[id]` for full view.
+- This cements Speechwriter as a returning workspace, not a one-shot demo.
