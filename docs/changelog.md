@@ -92,3 +92,34 @@
 **Status**
 
 - Phase C₂ (Run History & Persistence): ✅
+
+### v1.5 — 2025-11-08
+
+**Overview**
+
+- Implemented Guardrail v1 in the Speechwriter pipeline.
+- Guardrail now runs after Judge and before Editor.
+- Guardrail behaviour:
+  - Reads the winning draft plus planner constraints:
+    - `constraints.mustInclude`
+    - `constraints.mustAvoid`
+  - Applies minimal, conservative checks:
+    - Avoids violating explicit must-avoid instructions.
+    - Encourages inclusion of must-include themes where safe.
+    - Softens clearly unprofessional or absurd language.
+  - Returns structured JSON:
+    - `status`: `"ok" | "edited" | "flagged"`
+    - `safeText`: the version passed forward
+    - `issues[]`: short notes on what was changed or flagged
+- Orchestrator updates:
+  - Uses `safeText` from Guardrail when available.
+  - Always logs a `guardrail` stage entry in the trace:
+    - “OK — no material issues”
+    - “applied minimal edits…”
+    - or “flagged concerns…”
+  - Never blocks delivery of a final speech; worst case falls back to the judged draft.
+- This makes Guardrail:
+  - Inspectable,
+  - Non-silent,
+  - Non-destructive to UX,
+  - Ready for future tightening.

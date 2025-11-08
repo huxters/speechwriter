@@ -259,3 +259,45 @@ All subsequent work should preserve this pattern.
   - Auth-protected list of user’s speeches (most recent first).
   - Click-through to `/dashboard/history/[id]` for full view.
 - This cements Speechwriter as a returning workspace, not a one-shot demo.
+
+### v1.5 Addendum — Guardrail v1
+
+- Guardrail is now an active stage between **Judge** and **Editor**.
+- Implemented in `pipeline/guardrail.prompt.ts` and wired in `pipeline/runSpeechwriter.ts`.
+- Behaviour:
+  - Input:
+    - `draft`: winning draft from Judge
+    - `mustInclude`: from `planner.constraints.mustInclude`
+    - `mustAvoid`: from `planner.constraints.mustAvoid`
+  - Prompt responsibilities:
+    - Enforce explicit must-avoid constraints via minimal edits.
+    - Encourage inclusion of must-include themes where safe (no fabrication).
+    - Remove or soften clearly unprofessional, hateful, or absurd content.
+    - Never introduce new factual claims (e.g. numbers, names, guarantees).
+  - Output JSON schema:
+
+        {
+          "status": "ok" | "edited" | "flagged",
+          "safeText": "string",
+          "issues": ["short explanation 1", "short explanation 2"]
+        }
+
+- Orchestrator handling:
+  - Parses Guardrail JSON with `safeJson`.
+  - If valid:
+    - `status: "ok"`:
+      - Uses `safeText` (usually same as input).
+      - Trace: `Guardrail: OK — no material issues found.`
+    - `status: "edited"`:
+      - Uses edited `safeText`.
+      - Trace includes issues summary.
+    - `status: "flagged"`:
+      - Uses safest `safeText` available.
+      - Trace clearly notes flagged issues.
+  - If parsing fails or call errors:
+    - Falls back to Judge’s winning draft.
+    - Trace: `Guardrail: unable to parse / error — using judged draft as-is.`
+- Guardrail v1 is intentionally conservative:
+  - It provides transparency and basic constraint enforcement.
+  - It does not hard-block user output.
+  - Future versions may escalate to blocking/approval flows using the same contract.
