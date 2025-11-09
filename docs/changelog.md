@@ -1,5 +1,26 @@
 # Micro-Factory / Speechwriter — Changelog
 
+## v1.5 – Guardrail Console & Feedback Integration (Phase D)
+
+**Date:** 2025-11-09
+
+### Added
+
+- Admin Observer Console: live trace viewer with judge, guardrail, and feedback metadata.
+- Global Guardrail Console: editable include/avoid lists stored in Supabase.
+- Dual-draft generation: both drafts returned for transparency.
+- User feedback logging: captures user vs judge agreement per run.
+- Admin feedback overview: displays run-level votes and agreement.
+
+### Improved
+
+- Speech pipeline: now logs full ensemble reasoning and safety trace.
+- Persistence: unified run-ID for speeches, drafts, and feedback.
+
+### Next
+
+- Phase E: UI/UX polish & prompt management.
+
 ### v1.0 — 2025-11-08
 
 **Overview**
