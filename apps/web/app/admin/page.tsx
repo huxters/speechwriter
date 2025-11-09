@@ -1,42 +1,33 @@
-import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
-import Link from 'next/link';
+import { createClient } from '@/lib/supabase/server';
 
-type TraceEntry = { stage: string; message: string };
+type DraftsInfo = {
+  draft1: string;
+  draft2: string;
+  winnerLabel: 'draft1' | 'draft2';
+} | null;
 
-type SpeechRow = {
-  id: string;
-  created_at: string;
-  user_id: string;
-  brief: string;
-  final_speech: string;
-  planner: any;
-  judge: { winner: number; reason: string } | null;
-  trace: TraceEntry[] | null;
+type JudgeInfo = {
+  winner: 1 | 2;
+  reason: string;
+} | null;
+
+type TraceEntry = {
+  stage: string;
+  message: string;
 };
 
-function isAdmin(email: string | undefined | null): boolean {
-  if (!email) return false;
-  const raw = process.env.ADMIN_EMAILS || '';
-  const allowed = raw
+type FeedbackAgg = {
+  count: number;
+  agreeCount: number;
+};
+
+function getAdminEmails(): string[] {
+  const env = process.env.NEXT_PUBLIC_ADMIN_EMAILS || process.env.ADMIN_EMAILS || '';
+  return env
     .split(',')
     .map(e => e.trim().toLowerCase())
     .filter(Boolean);
-  return allowed.includes(email.toLowerCase());
-}
-
-function getLastJudgeSummary(trace: TraceEntry[] | null | undefined): string {
-  if (!trace || trace.length === 0) return 'no judge trace';
-  const judgeEntries = trace.filter(t => t.stage === 'judge');
-  if (judgeEntries.length === 0) return 'no judge trace';
-  // Use the LAST judge entry, which contains the actual selection.
-  return judgeEntries[judgeEntries.length - 1].message;
-}
-
-function getGuardrailSummary(trace: TraceEntry[] | null | undefined): string {
-  if (!trace || trace.length === 0) return 'no guardrail trace';
-  const guardrailEntry = trace.find(t => t.stage === 'guardrail');
-  return guardrailEntry?.message || 'no guardrail trace';
 }
 
 export default async function AdminPage() {
@@ -49,224 +40,272 @@ export default async function AdminPage() {
     redirect('/login');
   }
 
-  const email = (session.user.email as string | undefined | null) || null;
+  const adminEmails = getAdminEmails();
+  const isAdmin = adminEmails.includes((session.user.email || '').toLowerCase());
 
-  if (!isAdmin(email)) {
-    redirect('/dashboard');
-  }
-
-  const { data, error } = await supabase
-    .from('speeches')
-    .select(
-      `
-      id,
-      created_at,
-      user_id,
-      brief,
-      final_speech,
-      planner,
-      judge,
-      trace
-    `
-    )
-    .order('created_at', { ascending: false })
-    .limit(50);
-
-  if (error) {
-    console.error('Admin load error:', error);
+  if (!isAdmin) {
     return (
       <main
         style={{
           padding: '2rem',
-          maxWidth: 960,
+          maxWidth: 900,
           margin: '0 auto',
           fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif',
         }}
       >
-        <h1>Admin / Observer</h1>
-        <p style={{ color: '#b91c1c', fontSize: 13 }}>Failed to load speeches: {error.message}</p>
+        <h1 style={{ fontSize: 24, fontWeight: 600, marginBottom: 8 }}>Admin</h1>
+        <p
+          style={{
+            fontSize: 13,
+            color: '#6b7280',
+            marginBottom: 16,
+          }}
+        >
+          You are signed in but not authorised to view the admin console.
+        </p>
       </main>
     );
   }
 
-  const rows: SpeechRow[] = data || [];
+  // Load recent speeches
+  const { data: speeches, error: speechesError } = await supabase
+    .from('speeches')
+    .select('id, created_at, brief, final_speech, drafts, judge, trace')
+    .order('created_at', { ascending: false })
+    .limit(30);
+
+  // Load feedback for those speeches
+  const feedbackBySpeech = new Map<string, FeedbackAgg>();
+
+  if (!speechesError && speeches && speeches.length > 0) {
+    const speechIds = speeches.map(s => s.id);
+
+    const { data: feedback, error: feedbackError } = await supabase
+      .from('speech_feedback')
+      .select('speech_id, agreement')
+      .in('speech_id', speechIds);
+
+    if (!feedbackError && feedback) {
+      for (const row of feedback) {
+        const key = row.speech_id as string;
+        const prev = feedbackBySpeech.get(key) || {
+          count: 0,
+          agreeCount: 0,
+        };
+        const next = {
+          count: prev.count + 1,
+          agreeCount: prev.agreeCount + (row.agreement ? 1 : 0),
+        };
+        feedbackBySpeech.set(key, next);
+      }
+    }
+  }
 
   return (
     <main
       style={{
-        minHeight: '100vh',
         padding: '2rem',
-        maxWidth: 1120,
+        maxWidth: 1100,
         margin: '0 auto',
         fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif',
       }}
     >
       <p
         style={{
-          fontSize: 10,
-          textTransform: 'uppercase',
-          letterSpacing: '0.18em',
+          fontSize: 11,
           color: '#9ca3af',
           marginBottom: 4,
+          letterSpacing: 0.08,
         }}
       >
-        Admin / Observer
+        ADMIN / OBSERVER
       </p>
       <h1
         style={{
-          fontSize: 26,
+          fontSize: 28,
           fontWeight: 600,
-          margin: 0,
-          marginBottom: 8,
+          marginBottom: 4,
         }}
       >
         Pipeline Runs Overview
       </h1>
       <p
         style={{
-          fontSize: 12,
+          fontSize: 13,
           color: '#6b7280',
           marginBottom: 18,
+          maxWidth: 760,
         }}
       >
-        Read-only view of recent Speechwriter runs: judge decisions, guardrail behaviour, and final
-        outputs. Use this to verify the ensemble is doing real work.
+        Read-only view of recent Speechwriter runs: judge choices, guardrail behaviour, final
+        outputs, and human feedback. Use this to verify the ensemble is doing real work.
       </p>
 
-      {rows.length === 0 ? (
+      {speechesError && (
+        <div
+          style={{
+            padding: 10,
+            borderRadius: 8,
+            background: '#fef2f2',
+            color: '#991b1b',
+            fontSize: 11,
+            marginBottom: 16,
+          }}
+        >
+          Error loading speeches: {speechesError.message}
+        </div>
+      )}
+
+      {!speechesError && (!speeches || speeches.length === 0) && (
         <p
           style={{
             fontSize: 12,
-            color: '#9ca3af',
+            color: '#6b7280',
           }}
         >
-          No runs recorded yet.
+          No runs yet. Generate a speech to see pipeline activity.
         </p>
-      ) : (
-        <div
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 10,
-          }}
-        >
-          {rows.map(row => {
-            const created = new Date(row.created_at);
-            const createdLabel = created.toLocaleString(undefined, {
-              year: 'numeric',
-              month: 'short',
-              day: 'numeric',
-              hour: '2-digit',
-              minute: '2-digit',
-            });
+      )}
 
-            const briefPreview = row.brief.length > 120 ? row.brief.slice(0, 120) + '…' : row.brief;
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 12,
+        }}
+      >
+        {speeches &&
+          speeches.map(run => {
+            const drafts: DraftsInfo = (run.drafts as any as DraftsInfo) || null;
+            const judge: JudgeInfo = (run.judge as any as JudgeInfo) || null;
+            const trace: TraceEntry[] = (run.trace as any as TraceEntry[]) || [];
 
-            const judgeSummary = getLastJudgeSummary(row.trace);
-            const guardrailSummary = getGuardrailSummary(row.trace);
+            const feedback = feedbackBySpeech.get(run.id) || {
+              count: 0,
+              agreeCount: 0,
+            };
+            const agreementPct =
+              feedback.count > 0 ? Math.round((feedback.agreeCount / feedback.count) * 100) : null;
+
+            const judgeLabel =
+              drafts && drafts.winnerLabel
+                ? drafts.winnerLabel === 'draft1'
+                  ? 'Draft 1'
+                  : 'Draft 2'
+                : judge && judge.winner
+                  ? judge.winner === 1
+                    ? 'Draft 1'
+                    : 'Draft 2'
+                  : 'N/A';
+
+            const created = run.created_at ? new Date(run.created_at) : null;
+
+            const briefPreview = (run.brief as string)?.slice(0, 140) || '';
+            const finalPreview = (run.final_speech as string)?.slice(0, 260) || '';
+
+            const guardrailNote =
+              trace.find(t => t.stage === 'guardrail')?.message || 'Guardrail: n/a';
 
             return (
               <div
-                key={row.id}
+                key={run.id}
                 style={{
-                  padding: '10px 12px',
+                  padding: 14,
                   borderRadius: 12,
                   border: '1px solid #e5e7eb',
                   background: '#ffffff',
-                  boxShadow: '0 4px 14px rgba(15,23,42,0.04)',
                   display: 'grid',
-                  gridTemplateColumns: 'minmax(0, 2.2fr) minmax(0, 2fr)',
-                  gap: 10,
+                  gridTemplateColumns: 'minmax(0, 1.6fr) minmax(0, 2fr)',
+                  gap: 14,
                   alignItems: 'flex-start',
                 }}
               >
                 <div>
-                  <div
+                  <p
                     style={{
                       fontSize: 10,
                       color: '#9ca3af',
+                      margin: 0,
                       marginBottom: 2,
                     }}
                   >
-                    {createdLabel}
-                  </div>
-                  <div
+                    {created ? created.toLocaleString() : 'Unknown time'}
+                  </p>
+                  <p
                     style={{
-                      fontSize: 12,
+                      fontSize: 13,
                       fontWeight: 600,
-                      color: '#111827',
+                      margin: 0,
                       marginBottom: 4,
                     }}
                   >
-                    {briefPreview}
-                  </div>
-                  <div
+                    {briefPreview || 'Untitled brief'}
+                  </p>
+                  <p
+                    style={{
+                      fontSize: 10,
+                      color: '#6b7280',
+                      margin: 0,
+                      marginBottom: 6,
+                    }}
+                  >
+                    Judge:{' '}
+                    <span
+                      style={{
+                        fontWeight: 600,
+                      }}
+                    >
+                      {judgeLabel}
+                    </span>
+                    {judge?.reason
+                      ? ` — ${judge.reason.slice(0, 140)}${judge.reason.length > 140 ? '...' : ''}`
+                      : ''}
+                    <br />
+                    {guardrailNote}
+                  </p>
+                  {feedback.count > 0 && (
+                    <p
+                      style={{
+                        fontSize: 9,
+                        color: '#4b5563',
+                        margin: 0,
+                        marginTop: 4,
+                      }}
+                    >
+                      Feedback: {feedback.count} vote
+                      {feedback.count > 1 ? 's' : ''},{' '}
+                      {agreementPct !== null ? `${agreementPct}% agreement` : ''}
+                    </p>
+                  )}
+                </div>
+
+                <div>
+                  <p
                     style={{
                       fontSize: 10,
                       color: '#9ca3af',
-                    }}
-                  >
-                    user: {row.user_id}
-                  </div>
-                  <div
-                    style={{
-                      marginTop: 6,
-                      fontSize: 10,
-                      color: '#6b7280',
-                    }}
-                  >
-                    <strong>Judge:</strong> {judgeSummary}
-                    <br />
-                    <strong>Guardrail:</strong> {guardrailSummary}
-                  </div>
-                </div>
-
-                <div
-                  style={{
-                    fontSize: 10,
-                    color: '#6b7280',
-                    whiteSpace: 'pre-wrap',
-                  }}
-                >
-                  <div
-                    style={{
-                      fontSize: 10,
-                      fontWeight: 600,
-                      color: '#111827',
+                      margin: 0,
                       marginBottom: 2,
                     }}
                   >
                     Final Speech (preview)
-                  </div>
-                  {row.final_speech
-                    ? row.final_speech.slice(0, 420) + (row.final_speech.length > 420 ? '…' : '')
-                    : '(none)'}
-                  <div
+                  </p>
+                  <p
                     style={{
-                      marginTop: 6,
+                      fontSize: 11,
+                      color: '#111827',
+                      margin: 0,
+                      whiteSpace: 'pre-wrap',
                     }}
                   >
-                    <Link
-                      href={`/dashboard/history/${row.id}`}
-                      style={{
-                        fontSize: 10,
-                        textDecoration: 'none',
-                        color: '#111827',
-                        padding: '4px 8px',
-                        borderRadius: 999,
-                        border: '1px solid #e5e7eb',
-                        background: '#f9fafb',
-                      }}
-                    >
-                      View full run →
-                    </Link>
-                  </div>
+                    {finalPreview || 'No final speech recorded.'}
+                    {finalPreview && (finalPreview.length >= 260 ? '...' : '')}
+                  </p>
                 </div>
               </div>
             );
           })}
-        </div>
-      )}
+      </div>
     </main>
   );
 }

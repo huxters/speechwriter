@@ -2,101 +2,51 @@ import type { ChatCompletionMessageParam } from 'openai/resources/chat/completio
 
 export type GuardrailInput = {
   draft: string;
-  mustInclude?: string[];
-  mustAvoid?: string[];
+  mustInclude: string[]; // merged global + per-run (soft)
+  mustAvoid: string[]; // merged hard + global + per-run (hard)
 };
 
-export type GuardrailResult =
-  | {
-      status: 'ok';
-      safeText: string;
-      issues: string[];
-    }
-  | {
-      status: 'edited';
-      safeText: string;
-      issues: string[];
-    }
-  | {
-      status: 'flagged';
-      safeText: string;
-      issues: string[];
-    };
+export type GuardrailResult = {
+  status: 'ok' | 'edited' | 'flagged';
+  safeText: string;
+  issues: string[];
+};
 
-/**
- * Build messages for the Guardrail model.
- * The model:
- * - Checks if the draft violates must-avoid constraints.
- * - Ensures must-include points are broadly respected.
- * - Avoids obviously inappropriate / high-risk content.
- * - Returns JSON only.
- */
 export function buildGuardrailMessages(input: GuardrailInput): ChatCompletionMessageParam[] {
-  const { draft, mustInclude = [], mustAvoid = [] } = input;
-
-  const mustIncludeList =
-    mustInclude.length > 0 ? mustInclude.map(m => `- ${m}`).join('\n') : '- (none specified)';
-  const mustAvoidList =
-    mustAvoid.length > 0 ? mustAvoid.map(m => `- ${m}`).join('\n') : '- (none specified)';
-
   const system = `
-You are Guardrail, a cautious but minimal editor for a speechwriting pipeline.
+You are Guardrail, a minimal, precise safety and constraint enforcer for a speechwriting pipeline.
+
+You receive:
+- a candidate speech ("draft")
+- a list of mustInclude phrases/themes
+- a list of mustAvoid constraints
 
 Your job:
-- Check the DRAFT against the CONSTRAINTS.
-- Only intervene when necessary.
-- Never invent new factual claims (numbers, names, promises).
-- Preserve the speaker's intent, tone, and meaning.
+1. Enforce mustAvoid strictly:
+   - If the draft clearly violates a mustAvoid (e.g. profanity if banned, forbidden topics),
+     you MUST either:
+       - minimally edit the text to remove/soften the violation, OR
+       - if it cannot be fixed with small changes, mark status as "flagged".
+2. Respect mustInclude softly:
+   - Encourage inclusion of these ideas if reasonable, but DO NOT hallucinate fake facts.
+   - Only add or strengthen content when it is generic, safe, and consistent with the draft.
+3. Do not add new specific legal, medical, defamatory, or factual claims.
+4. Do not change the core message, audience, or tone unnecessarily.
+5. Prefer the smallest edit set that satisfies constraints.
 
-Constraints to enforce:
-
-1. Must-Avoid:
-   - The DRAFT should not include content that directly contradicts or clearly violates the must-avoid list.
-   - If it does, remove or rephrase minimally.
-
-2. Must-Include:
-   - If any must-include items are clearly missing and can be added safely, you may minimally weave them in.
-   - Do NOT fabricate specifics. Use generic, truthful phrasing if needed.
-
-3. Safety & Professionalism:
-   - Avoid gratuitously offensive, hateful, or demeaning language.
-   - Avoid absurd or clearly impossible claims about the product or organisation.
-   - If something is borderline, prefer a softening edit over blocking.
-
-Return JSON ONLY with this shape (no extra commentary):
+Return ONLY JSON with this shape:
 
 {
   "status": "ok" | "edited" | "flagged",
-  "safeText": "string",
-  "issues": ["short explanation 1", "short explanation 2"]
+  "safeText": string,
+  "issues": string[]
 }
-
-Definitions:
-- "ok": Draft is acceptable with no material changes.
-- "edited": You made targeted edits to comply with constraints.
-- "flagged": Serious issues remain. You still provide the safest version you can in "safeText" but note issues.
 `.trim();
 
-  const user = `
-CONSTRAINTS:
-- Must-Include:
-${mustIncludeList}
-
-- Must-Avoid:
-${mustAvoidList}
-
-DRAFT:
-${draft}
-  `.trim();
+  const user = JSON.stringify(input);
 
   return [
-    {
-      role: 'system',
-      content: system,
-    },
-    {
-      role: 'user',
-      content: user,
-    },
+    { role: 'system', content: system },
+    { role: 'user', content: user },
   ];
 }
