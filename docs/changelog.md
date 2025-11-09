@@ -123,3 +123,14 @@
   - Non-silent,
   - Non-destructive to UX,
   - Ready for future tightening.
+
+## v1.5 – Admin Observer Console + Pipeline Stability
+
+**Date:** 2025-11-08
+
+- Implemented end-to-end pipeline with full Supabase persistence
+- Added Admin / Observer console with draft comparison
+- Guardrail v1 operational across test runs
+- Simplified import structure to `apps/web/pipeline`
+- Verified persistence and debugging through `/admin`
+- CI temporarily disabled pending tests
