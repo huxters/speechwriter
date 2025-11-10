@@ -1,515 +1,549 @@
-// apps/web/pipeline/runSpeechwriter.ts
-
-import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions';
-import { buildGuardrailMessages, GuardrailResult } from './guardrail.prompt';
-
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const MODEL = process.env.OPENAI_MODEL || 'gpt-4.1-mini';
-
-if (!OPENAI_API_KEY) {
-  console.warn(
-    '[runSpeechwriterPipeline] Warning: OPENAI_API_KEY is not set. Pipeline calls will fail.'
-  );
-}
-
-type SpeechConfig = {
-  audience?: string;
-  eventContext?: string;
-  tone?: string;
-  duration?: string;
-  keyPoints?: string;
-  redLines?: string;
-  globalMustInclude?: string[];
-  globalMustAvoid?: string[];
-};
+import OpenAI from 'openai';
+import { preparseBrief, ParsedBrief } from './preparseBrief';
+import { plannerPrompt } from './planner.prompt';
+import { drafterPrompt } from './drafter.prompt';
+import { judgePrompt } from './judge.prompt';
+import { guardrailPrompt } from './guardrail.prompt';
+import { editorPrompt } from './editor.prompt';
+import { createClient as createSupabaseServerClient } from '@/lib/supabase/server';
+import { matchPresets, PresetId } from './presets.config';
+import { loadImplicitProfile, ImplicitProfileHints } from './implicitProfile';
 
 type TraceEntry = {
   stage: string;
   message: string;
 };
 
-type PlannerPlan = {
-  coreMessage: string;
-  audience: string;
-  eventContext: string;
-  tone: string;
-  duration: string;
-  pillars: { title: string; summary: string }[];
-  constraints: {
-    mustInclude: string[];
-    mustAvoid: string[];
-  };
-};
-
-type JudgeResult = {
+type JudgeInfo = {
   winner: 1 | 2;
   reason: string;
 };
 
-type DraftsInfo = {
+type GuardrailInfo = {
+  ok: boolean;
+  message: string;
+};
+
+type Drafts = {
   draft1: string;
   draft2: string;
   winnerLabel: 'draft1' | 'draft2';
 };
 
-export type PipelineResult = {
-  finalSpeech: string;
-  planner: PlannerPlan | null;
-  judge: JudgeResult | null;
+export type SpeechwriterResult = {
+  finalSpeech: string | null;
+  drafts: Drafts | null;
+  judge: JudgeInfo | null;
+  guardrail: GuardrailInfo | null;
   trace: TraceEntry[];
-  drafts: DraftsInfo | null;
 };
 
-// Hard safety floor – extend later, but not editable via UI
-const HARD_SAFETY_MUST_AVOID: string[] = [];
+/* ---------- OpenAI helpers ---------- */
 
-function dedupe(values: string[]): string[] {
-  return Array.from(new Set(values.map(v => v.trim()).filter(v => v.length > 0)));
+function getOpenAI() {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    throw new Error('Missing OPENAI_API_KEY');
+  }
+  return new OpenAI({ apiKey });
 }
 
-/* -------------------- OpenAI call + JSON helpers -------------------- */
-
-async function callOpenAI(
-  messages: ChatCompletionMessageParam[],
-  opts?: { expectJson?: boolean }
-): Promise<string> {
-  if (!OPENAI_API_KEY) {
-    throw new Error('OPENAI_API_KEY is not configured.');
-  }
-
-  const res = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${OPENAI_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: MODEL,
-      messages,
-      temperature: 0.7,
-    }),
+async function callChat({
+  system,
+  user,
+  temperature = 0.3,
+  maxTokens,
+}: {
+  system: string;
+  user: string;
+  temperature?: number;
+  maxTokens?: number;
+}): Promise<string> {
+  const client = getOpenAI();
+  const completion = await client.chat.completions.create({
+    model: 'gpt-4o-mini',
+    temperature,
+    max_tokens: maxTokens,
+    messages: [
+      { role: 'system', content: system },
+      { role: 'user', content: user },
+    ],
   });
 
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(`OpenAI error (${res.status}): ${text || res.statusText}`);
-  }
-
-  const data = (await res.json()) as any;
-  const content = data?.choices?.[0]?.message?.content?.toString().trim() || '';
-
-  if (!content) {
-    throw new Error('No content returned from OpenAI.');
-  }
-
-  // For JSON, we deliberately return the raw content;
-  // parsing is handled by our lenient helpers.
-  return content;
+  return completion.choices[0]?.message?.content?.trim() || '';
 }
 
-function extractJsonObject(raw: string): string | null {
-  if (!raw) return null;
+/* ---------- Helpers ---------- */
 
-  // Strip common markdown fences
-  let text = raw.trim();
-  text = text
-    .replace(/^```[a-zA-Z]*\s*/g, '')
-    .replace(/```$/g, '')
-    .trim();
+function extractMarkedDraft(raw: string, marker: string, endMarker?: string): string {
+  if (!raw) return '';
+  const startToken = `===${marker}===`;
+  const endToken = endMarker ? `===${endMarker}===` : `===END_${marker}===`;
 
-  const first = text.indexOf('{');
-  const last = text.lastIndexOf('}');
-  if (first === -1 || last === -1 || last <= first) return null;
+  const startIdx = raw.indexOf(startToken);
+  if (startIdx === -1) {
+    // No marker: assume whole thing is the draft.
+    return raw.trim();
+  }
 
-  return text.slice(first, last + 1);
+  const contentStart = startIdx + startToken.length;
+  const endIdx = raw.indexOf(endToken, contentStart);
+  const slice = endIdx === -1 ? raw.slice(contentStart) : raw.slice(contentStart, endIdx);
+  return slice.trim();
 }
 
-function safeJson<T>(raw: string): T | null {
-  const core = extractJsonObject(raw);
-  if (!core) return null;
+async function saveSpeechToHistory(args: {
+  userId: string;
+  brief: string;
+  finalSpeech: string;
+  trace: TraceEntry[];
+}) {
+  const supabase = await createSupabaseServerClient();
 
-  // Try straight parse
-  try {
-    return JSON.parse(core) as T;
-  } catch {
-    // Try removing trailing commas
-    try {
-      const fixed = core.replace(/,\s*([}\]])/g, '$1');
-      return JSON.parse(fixed) as T;
-    } catch {
-      return null;
-    }
+  const { error } = await supabase.from('speeches').insert({
+    user_id: args.userId,
+    brief: args.brief,
+    final_speech: args.finalSpeech,
+    trace: args.trace,
+  });
+
+  if (error) {
+    throw error;
   }
 }
 
-/* -------------------- Planner -------------------- */
+/* ---------- Main pipeline ---------- */
 
-function buildPlannerMessages(brief: string, config?: SpeechConfig): ChatCompletionMessageParam[] {
-  const { audience, eventContext, tone, duration, keyPoints, redLines } = config || {};
-
-  const system = `
-You are Planner, the lead strategist of a speechwriting pipeline.
-
-Turn the input into a precise JSON plan for a short spoken speech.
-
-Rules:
-- Use both the free-text brief and structured fields.
-- If they conflict, trust the structured fields.
-- Do NOT make up names, numbers, or legal/medical claims.
-- Output ONLY valid JSON with this exact shape (no commentary):
-
-{
-  "coreMessage": string,
-  "audience": string,
-  "eventContext": string,
-  "tone": string,
-  "duration": string,
-  "pillars": [
-    { "title": string, "summary": string }
-  ],
-  "constraints": {
-    "mustInclude": string[],
-    "mustAvoid": string[]
-  }
-}
-`.trim();
-
-  const user = `
-BRIEF:
-${brief}
-
-STRUCTURED:
-- audience: ${audience || '(none)'}
-- eventContext: ${eventContext || '(none)'}
-- tone: ${tone || '(none)'}
-- duration: ${duration || '(none)'}
-- mustInclude (keyPoints): ${keyPoints || '(none)'}
-- mustAvoid (redLines): ${redLines || '(none)'}
-`.trim();
-
-  return [
-    { role: 'system', content: system },
-    { role: 'user', content: user },
-  ];
-}
-
-/* -------------------- Drafter -------------------- */
-
-function buildDrafterMessages(plan: PlannerPlan): ChatCompletionMessageParam[] {
-  const system = `
-You are Drafter, a specialist in spoken speeches.
-
-Using ONLY the planner JSON, produce TWO DISTINCT drafts that BOTH:
-- Follow the plan.
-- Respect constraints.mustInclude and constraints.mustAvoid.
-- Are realistic to deliver in the stated duration.
-- Do NOT invent specific data or serious factual claims.
-
-Diversity:
-- "draft1": classic, structured, measured.
-- "draft2": alternative style (e.g. more narrative or energetic), still professional.
-
-Return ONLY valid JSON (no markdown, no commentary):
-
-{
-  "draft1": string,
-  "draft2": string
-}
-`.trim();
-
-  const user = JSON.stringify(plan);
-
-  return [
-    { role: 'system', content: system },
-    { role: 'user', content: user },
-  ];
-}
-
-/* -------------------- Judge -------------------- */
-
-function buildJudgeMessages(args: {
-  plan: PlannerPlan;
-  option1: string;
-  option2: string;
-}): ChatCompletionMessageParam[] {
-  const system = `
-You are Judge, selecting the better draft.
-
-Evaluate each option on:
-- Alignment with coreMessage, audience, eventContext, tone, duration.
-- Respect for constraints.mustInclude and constraints.mustAvoid.
-- Clarity, coherence, and spoken delivery.
-
-Order is randomised; do NOT assume option1 is better.
-
-Return ONLY valid JSON (no commentary):
-
-{
-  "winner": 1 | 2,
-  "reason": string
-}
-`.trim();
-
-  const user = JSON.stringify(args);
-
-  return [
-    { role: 'system', content: system },
-    { role: 'user', content: user },
-  ];
-}
-
-/* -------------------- Editor -------------------- */
-
-function buildEditorMessages(draft: string): ChatCompletionMessageParam[] {
-  const system = `
-You are Editor, finalising a spoken speech.
-
-Tighten for:
-- clarity and logical flow,
-- natural spoken cadence,
-- strong opening and close.
-
-Do NOT add new concrete facts.
-
-Return ONLY the final speech text (no JSON, no labels).
-`.trim();
-
-  return [
-    { role: 'system', content: system },
-    { role: 'user', content: draft },
-  ];
-}
-
-/* -------------------- Orchestrator -------------------- */
-
-export async function runSpeechwriterPipeline(
-  brief: string,
-  config?: SpeechConfig
-): Promise<PipelineResult> {
+export async function runSpeechwriterPipeline(args: {
+  userId?: string | null;
+  anonUserId?: string | null;
+  rawBrief: string;
+  audience?: string;
+  eventContext?: string;
+  tone?: string;
+  duration?: string;
+  mustInclude?: string;
+  mustAvoid?: string;
+}): Promise<SpeechwriterResult> {
   const trace: TraceEntry[] = [];
+  const {
+    userId,
+    anonUserId,
+    rawBrief,
+    audience,
+    eventContext,
+    tone,
+    duration,
+    mustInclude,
+    mustAvoid,
+  } = args;
 
+  if (!rawBrief || !rawBrief.trim()) {
+    return {
+      finalSpeech: null,
+      drafts: null,
+      judge: null,
+      guardrail: null,
+      trace: [
+        {
+          stage: 'input',
+          message: 'No brief provided.',
+        },
+      ],
+    };
+  }
+
+  /* --- Identity --- */
+
+  if (anonUserId) {
+    trace.push({
+      stage: 'identity',
+      message: `Anon identity present: ${anonUserId.slice(0, 8)}…`,
+    });
+  }
+
+  /* --- Pre-Parser --- */
+
+  let parsedBrief: ParsedBrief | {} = {};
   try {
-    /* 1. Planner */
-
+    parsedBrief = await preparseBrief(rawBrief);
     trace.push({
-      stage: 'planner',
-      message: 'Planner: generating structured plan from brief + config.',
+      stage: 'preparser',
+      message: 'Preparser: parsed brief into structured config.',
     });
+  } catch (err: any) {
+    console.error('Preparser error', err);
+    trace.push({
+      stage: 'preparser',
+      message: `Preparser failed, continuing without structured hints: ${
+        err?.message || 'unknown error'
+      }`,
+    });
+  }
 
-    const plannerRaw = await callOpenAI(buildPlannerMessages(brief, config), { expectJson: true });
-    const planner = safeJson<PlannerPlan>(plannerRaw);
+  /* --- Merge explicit overrides as soft hints --- */
 
-    if (!planner) {
+  const mergedContext: ParsedBrief & {
+    must_include?: string[];
+    must_avoid?: string[];
+  } = {
+    ...(parsedBrief as ParsedBrief),
+    audience_inferred: audience || (parsedBrief as ParsedBrief).audience_inferred,
+    event_context: eventContext || (parsedBrief as ParsedBrief).event_context,
+    tone_guess: tone || (parsedBrief as ParsedBrief).tone_guess,
+    duration_hint: duration || (parsedBrief as ParsedBrief).duration_hint,
+    must_include: [
+      ...(((parsedBrief as ParsedBrief).must_include as string[]) || []),
+      ...(mustInclude ? [mustInclude] : []),
+    ],
+    must_avoid: [
+      ...(((parsedBrief as ParsedBrief).must_avoid as string[]) || []),
+      ...(mustAvoid ? [mustAvoid] : []),
+    ],
+  };
+
+  const contextSummary = JSON.stringify(mergedContext);
+
+  /* --- Presets --- */
+
+  let matchedPresets: PresetId[] = [];
+  try {
+    matchedPresets = matchPresets(mergedContext as ParsedBrief);
+    if (matchedPresets.length > 0) {
       trace.push({
-        stage: 'planner',
-        message: 'Planner: failed to parse JSON plan; aborting pipeline.',
-      });
-      return {
-        finalSpeech: '',
-        planner: null,
-        judge: null,
-        trace,
-        drafts: null,
-      };
-    }
-
-    trace.push({
-      stage: 'planner',
-      message: 'Planner: JSON plan parsed successfully.',
-    });
-
-    /* 2. Build effective guardrails (3-layer merge) */
-
-    const globalMustInclude = (config?.globalMustInclude || []).filter(Boolean);
-    const globalMustAvoid = (config?.globalMustAvoid || []).filter(Boolean);
-
-    const perRunMustInclude = planner.constraints?.mustInclude || [];
-    const perRunMustAvoid = planner.constraints?.mustAvoid || [];
-
-    const effectiveMustAvoid = dedupe([
-      ...HARD_SAFETY_MUST_AVOID,
-      ...globalMustAvoid,
-      ...perRunMustAvoid,
-    ]);
-
-    const effectiveMustInclude = dedupe([...globalMustInclude, ...perRunMustInclude]);
-
-    if (globalMustInclude.length || globalMustAvoid.length) {
-      trace.push({
-        stage: 'guardrail',
-        message: 'Guardrail: merged global guardrails with per-run constraints.',
-      });
-    }
-
-    /* 3. Drafter */
-
-    trace.push({
-      stage: 'drafter',
-      message: 'Drafter: generating two candidate drafts from planner JSON.',
-    });
-
-    const drafterRaw = await callOpenAI(buildDrafterMessages(planner), { expectJson: true });
-    const draftsJson = safeJson<{ draft1: string; draft2: string }>(drafterRaw);
-
-    if (!draftsJson?.draft1 || !draftsJson?.draft2) {
-      console.error('[runSpeechwriterPipeline] Drafter raw response not parseable:', drafterRaw);
-      trace.push({
-        stage: 'drafter',
-        message: 'Drafter: invalid JSON from model; aborting pipeline.',
-      });
-      return {
-        finalSpeech: '',
-        planner,
-        judge: null,
-        trace,
-        drafts: null,
-      };
-    }
-
-    trace.push({
-      stage: 'drafter',
-      message: 'Drafter: produced 2 drafts.',
-    });
-
-    /* 4. Judge with randomised order */
-
-    trace.push({
-      stage: 'judge',
-      message: 'Judge: evaluating drafts (order randomised to reduce bias).',
-    });
-
-    type Variant = { label: 'draft1' | 'draft2'; text: string };
-
-    let variants: [Variant, Variant] = [
-      { label: 'draft1', text: draftsJson.draft1 },
-      { label: 'draft2', text: draftsJson.draft2 },
-    ];
-
-    if (Math.random() < 0.5) {
-      variants = [variants[1], variants[0]];
-    }
-
-    const judgeRaw = await callOpenAI(
-      buildJudgeMessages({
-        plan: planner,
-        option1: variants[0].text,
-        option2: variants[1].text,
-      }),
-      { expectJson: true }
-    );
-    const judge = safeJson<JudgeResult>(judgeRaw);
-
-    let winnerLabel: 'draft1' | 'draft2' = 'draft1';
-    let winnerDraft = draftsJson.draft1;
-
-    if (judge && (judge.winner === 1 || judge.winner === 2)) {
-      const chosen = variants[judge.winner - 1];
-      winnerLabel = chosen.label;
-      winnerDraft = chosen.text;
-      trace.push({
-        stage: 'judge',
-        message: `Judge: selected ${winnerLabel} — ${judge.reason}`,
+        stage: 'presets',
+        message: `Presets matched: ${matchedPresets.join(', ')}.`,
       });
     } else {
       trace.push({
-        stage: 'judge',
-        message: 'Judge: invalid JSON from model; defaulting to draft1.',
+        stage: 'presets',
+        message: 'Presets: no strong match; proceeding generic.',
       });
     }
+  } catch (err: any) {
+    console.error('Preset match error', err);
+    trace.push({
+      stage: 'presets',
+      message: 'Presets: error in matching, ignored.',
+    });
+    matchedPresets = [];
+  }
 
-    const drafts: DraftsInfo = {
-      draft1: draftsJson.draft1,
-      draft2: draftsJson.draft2,
-      winnerLabel,
+  /* --- Implicit profile (read-only) --- */
+
+  let profileHints: ImplicitProfileHints | null = null;
+  try {
+    profileHints = await loadImplicitProfile({ userId });
+    if (profileHints) {
+      const parts = [
+        `segment=${profileHints.segment}`,
+        profileHints.toneBias ? `tone=${profileHints.toneBias}` : '',
+        profileHints.formalityBias ? `formality=${profileHints.formalityBias}` : '',
+        profileHints.structureBias ? `structure=${profileHints.structureBias}` : '',
+      ]
+        .filter(Boolean)
+        .join(', ');
+
+      trace.push({
+        stage: 'profile',
+        message: `Profile: loaded hints (${parts || 'no explicit biases'})`,
+      });
+    } else {
+      trace.push({
+        stage: 'profile',
+        message: 'Profile: none loaded (new user or no profile set).',
+      });
+    }
+  } catch (err: any) {
+    console.warn('Profile load error', err);
+    trace.push({
+      stage: 'profile',
+      message: 'Profile: error loading, ignored.',
+    });
+    profileHints = null;
+  }
+
+  /* --- Planner --- */
+
+  let planJson = '';
+  try {
+    const plannerUserPrompt = `
+Brief:
+${rawBrief}
+
+Context hints (may be partial):
+${contextSummary}
+
+Matched presets (hints only, may be empty):
+${JSON.stringify(matchedPresets)}
+
+Implicit profile hints (use ONLY if consistent with this specific request):
+${JSON.stringify(profileHints || {})}
+
+Using the above, produce a structured plan in JSON as described in the planner prompt.
+`.trim();
+
+    const planRaw = await callChat({
+      system: plannerPrompt,
+      user: plannerUserPrompt,
+      temperature: 0.2,
+    });
+
+    JSON.parse(planRaw);
+    planJson = planRaw;
+
+    trace.push({
+      stage: 'planner',
+      message: 'Planner: generated structured plan JSON.',
+    });
+  } catch (err: any) {
+    console.error('Planner error / JSON parse failure', err);
+    trace.push({
+      stage: 'planner',
+      message: 'Planner: failed to produce valid JSON. Falling back to minimal implicit plan.',
+    });
+
+    planJson = JSON.stringify({
+      core_message: rawBrief.slice(0, 400),
+      audience: mergedContext.audience_inferred || null,
+      tone: mergedContext.tone_guess || null,
+      format: (mergedContext as any).format_guess || 'speech',
+      sections: [],
+    });
+  }
+
+  /* --- Drafter: two candidate drafts (clean) --- */
+
+  let draft1 = '';
+  let draft2 = '';
+
+  try {
+    const base = `
+You are the Drafter stage.
+
+Here is the plan (JSON):
+${planJson}
+
+Write one spoken-first draft based on this plan.
+If markers like ===DRAFT_1=== / ===END_DRAFT_1=== are used, ensure ONLY one draft is inside them.
+`.trim();
+
+    const raw1 = await callChat({
+      system: drafterPrompt,
+      user: base + '\n\nDraft 1:',
+      temperature: 0.7,
+    });
+
+    const raw2 = await callChat({
+      system: drafterPrompt,
+      user: base + '\n\nDraft 2 (different angle):',
+      temperature: 0.9,
+    });
+
+    // Support both marker and non-marker styles safely.
+    draft1 =
+      extractMarkedDraft(raw1, 'DRAFT_1') || extractMarkedDraft(raw1, 'DRAFT_A') || raw1.trim();
+
+    draft2 =
+      extractMarkedDraft(raw2, 'DRAFT_2') || extractMarkedDraft(raw2, 'DRAFT_B') || raw2.trim();
+
+    trace.push({
+      stage: 'drafter',
+      message: 'Drafter: produced 2 candidate drafts.',
+    });
+  } catch (err: any) {
+    console.error('Drafter error', err);
+    trace.push({
+      stage: 'drafter',
+      message: `Drafter failed: ${err?.message || 'unknown error'}`,
+    });
+  }
+
+  if (!draft1 && !draft2) {
+    return {
+      finalSpeech: null,
+      drafts: null,
+      judge: null,
+      guardrail: null,
+      trace,
+    };
+  }
+
+  /* --- Judge --- */
+
+  let judge: JudgeInfo | null = null;
+  let winnerLabel: 'draft1' | 'draft2' = 'draft1';
+  let winningDraft = draft1 || draft2;
+
+  try {
+    const judgeInput = JSON.stringify({
+      plan: JSON.parse(planJson),
+      draft1,
+      draft2,
+    });
+
+    const judgeRaw = await callChat({
+      system: judgePrompt,
+      user: judgeInput,
+      temperature: 0,
+    });
+
+    const judgeParsed = JSON.parse(judgeRaw);
+    const winner = judgeParsed.winner === 2 ? 2 : 1;
+
+    judge = {
+      winner,
+      reason: typeof judgeParsed.reason === 'string' ? judgeParsed.reason : 'No reason provided.',
     };
 
-    /* 5. Guardrail */
+    if (winner === 2 && draft2) {
+      winnerLabel = 'draft2';
+      winningDraft = draft2;
+    } else {
+      winnerLabel = 'draft1';
+      winningDraft = draft1 || draft2;
+    }
+
+    trace.push({
+      stage: 'judge',
+      message: `Judge: selected draft ${winner} — ${judge.reason.slice(0, 180)}`,
+    });
+  } catch (err: any) {
+    console.error('Judge error', err);
+    judge = null;
+    winnerLabel = draft1 ? 'draft1' : 'draft2';
+    winningDraft = draft1 || draft2;
+    trace.push({
+      stage: 'judge',
+      message: 'Judge: failed to parse decision. Defaulted to first non-empty draft.',
+    });
+  }
+
+  /* --- Guardrail --- */
+
+  let guardrail: GuardrailInfo | null = null;
+  let guardedDraft = winningDraft;
+
+  try {
+    const guardrailInput = JSON.stringify({
+      brief: rawBrief,
+      context: mergedContext,
+      draft: winningDraft,
+    });
+
+    const guardrailRaw = await callChat({
+      system: guardrailPrompt,
+      user: guardrailInput,
+      temperature: 0,
+    });
+
+    let ok = true;
+    let message = 'OK — no material issues found.';
+    let edited = winningDraft;
+
+    try {
+      const g = JSON.parse(guardrailRaw);
+      ok = g.ok !== false;
+      message =
+        typeof g.message === 'string' ? g.message : ok ? message : 'Guardrail adjustments applied.';
+      edited = typeof g.draft === 'string' && g.draft.trim().length ? g.draft : winningDraft;
+    } catch {
+      edited = winningDraft;
+      message = guardrailRaw.slice(0, 240) || message;
+    }
+
+    guardrail = { ok, message };
+    guardedDraft = edited;
 
     trace.push({
       stage: 'guardrail',
-      message: 'Guardrail: checking winning draft against merged constraints.',
+      message: `Guardrail: ${message.slice(0, 160)}`,
     });
-
-    let guardedDraft = winnerDraft;
-
-    try {
-      const guardrailRaw = await callOpenAI(
-        buildGuardrailMessages({
-          draft: winnerDraft,
-          mustInclude: effectiveMustInclude,
-          mustAvoid: effectiveMustAvoid,
-        }),
-        { expectJson: true }
-      );
-      const parsed = safeJson<GuardrailResult>(guardrailRaw);
-
-      if (parsed && parsed.safeText) {
-        if (parsed.status === 'ok') {
-          trace.push({
-            stage: 'guardrail',
-            message: 'Guardrail: OK — no material issues found.',
-          });
-          guardedDraft = parsed.safeText;
-        } else if (parsed.status === 'edited') {
-          trace.push({
-            stage: 'guardrail',
-            message: `Guardrail: applied minimal edits. Issues: ${parsed.issues.join('; ')}`,
-          });
-          guardedDraft = parsed.safeText;
-        } else if (parsed.status === 'flagged') {
-          trace.push({
-            stage: 'guardrail',
-            message: `Guardrail: flagged issues. Issues: ${parsed.issues.join('; ')}`,
-          });
-          guardedDraft = parsed.safeText;
-        }
-      } else {
-        trace.push({
-          stage: 'guardrail',
-          message: 'Guardrail: could not parse response; using judged draft.',
-        });
-      }
-    } catch (err: any) {
-      trace.push({
-        stage: 'guardrail',
-        message: `Guardrail: error "${err?.message || 'unknown'}"; using judged draft.`,
-      });
-    }
-
-    /* 6. Editor */
-
+  } catch (err: any) {
+    console.error('Guardrail error', err);
+    guardrail = null;
+    guardedDraft = winningDraft;
     trace.push({
-      stage: 'editor',
-      message: 'Editor: tightening draft for spoken delivery.',
+      stage: 'guardrail',
+      message: 'Guardrail: failed or skipped; using judge-selected draft.',
+    });
+  }
+
+  /* --- Editor --- */
+
+  let finalSpeech: string | null = null;
+
+  try {
+    const editorInput = JSON.stringify({
+      brief: rawBrief,
+      context: mergedContext,
+      draft: guardedDraft,
     });
 
-    const finalSpeech = await callOpenAI(buildEditorMessages(guardedDraft));
+    const edited = await callChat({
+      system: editorPrompt,
+      user: editorInput,
+      temperature: 0.4,
+    });
+
+    finalSpeech = edited && edited.trim().length ? edited.trim() : guardedDraft;
 
     trace.push({
       stage: 'editor',
       message: 'Editor: final speech ready.',
     });
-
-    return {
-      finalSpeech,
-      planner,
-      judge: judge || null,
-      trace,
-      drafts,
-    };
   } catch (err: any) {
-    console.error('[runSpeechwriterPipeline] Pipeline error:', err);
+    console.error('Editor error', err);
+    finalSpeech = guardedDraft || null;
     trace.push({
-      stage: 'error',
-      message: `Pipeline error: ${err?.message || String(err)}`,
+      stage: 'editor',
+      message: 'Editor: failed; falling back to guardrailed draft as final speech.',
     });
-
-    return {
-      finalSpeech: '',
-      planner: null,
-      judge: null,
-      trace,
-      drafts: null,
-    };
   }
+
+  /* --- Persistence --- */
+
+  const drafts: Drafts | null = draft1 || draft2 ? { draft1, draft2, winnerLabel } : null;
+
+  try {
+    if (userId && finalSpeech) {
+      await saveSpeechToHistory({
+        userId,
+        brief: rawBrief,
+        finalSpeech,
+        trace,
+      });
+
+      trace.push({
+        stage: 'persistence',
+        message: 'Saved speech to history for current user.',
+      });
+    } else if (!userId) {
+      trace.push({
+        stage: 'persistence',
+        message: 'No user id available; run not saved to history (likely anonymous or auth issue).',
+      });
+    } else if (!finalSpeech) {
+      trace.push({
+        stage: 'persistence',
+        message: 'No final speech produced; nothing saved to history.',
+      });
+    }
+  } catch (err: any) {
+    console.error('Error saving speech to history', err);
+    trace.push({
+      stage: 'persistence',
+      message: `Failed to save: ${err?.message || 'unknown error'}`,
+    });
+  }
+
+  /* --- Return --- */
+
+  return {
+    finalSpeech,
+    drafts,
+    judge,
+    guardrail,
+    trace,
+  };
 }

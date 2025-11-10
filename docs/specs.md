@@ -1,138 +1,155 @@
-# 🧩 Speechwriter Project Roadmap — Updated (v2.0 Architecture)
+# Speechwriter Specification
 
-> _The human soul makes the choice; the machine mind makes the thinking sharper._
-
----
-
-## Phase A — Functional Scaffolding ✅ _Complete_
-
-**Objective:** Build a stable application shell to support all future functionality.
-
-**Delivered:**
-
-- Next.js 14 app with Supabase authentication (login, dashboard, RLS).
-- Database schema and secure persistence foundation.
-- Local dev workflow standardised (`Start Web` / `Stop Server`).
-- Baseline Supabase setup verified with user-level data isolation.
-
-**Outcome:**  
-A production-grade foundation for iterative development — no prototype fragility.
+**Version:** v1.5.2  
+**Updated:** 10 November 2025  
+**Owner:** Halo MicroFactory
 
 ---
 
-## Phase B — Core Pipeline Integration ✅ _Complete_
+## 1. Overview
 
-**Objective:** Transform a brief into a structured, optimised speech via modular pipeline.
+**Speechwriter** is a multi-agent system that converts a user’s natural brief into a world-class spoken draft through a structured pipeline:  
+**Preparser → Planner → Drafter → Judge → Guardrail → Editor → Persistence.**
 
-**Delivered:**
-
-- Planner → Drafter → Judge → Editor pipeline implemented and stable.
-- Structured JSON planning and reasoning chain.
-- Two-draft generation with stylistic diversity.
-- Judge selection with reasoning trace and reduced position bias.
-- Spoken-delivery Editor pass for concision and clarity.
-
-**Outcome:**  
-A functional “micro-factory” capable of consistently producing, evaluating, and refining speeches.
+It supports both **anonymous** and **authenticated** users and is designed around a principle of _one-shot usability_ — the user should be able to type (or speak) a single sentence and receive a professional, speech-ready output. Context and history enhance, but are never required.
 
 ---
 
-## Phase C — Stability, Persistence & Guardrails ✅ _Complete_
+## 2. Product Principles
 
-**Objective:** Make generation safe, observable, and durable.
-
-**Delivered:**
-
-- Guardrail v1 (tone and taboo filters; must-include / must-avoid logic).
-- Full pipeline trace logging at every stage.
-- Supabase persistence for all runs (brief, plan, drafts, trace, final speech).
-- User history interface (`/dashboard/history`).
-- Reproducible local development and clean Git/GitHub workflows.
-
-**Outcome:**  
-Every run is now recoverable, inspectable, and reproducible.
+1. **Always one-shot usable.** A first-time user gets value immediately.
+2. **Context only enhances.** Profile, presets, or memory should add precision, not friction.
+3. **Implicit > Explicit.** Infer from behaviour before asking for data.
+4. **Simplicity over configuration.** No menus, toggles, or setup before the first run.
+5. **Transparency for builders.** Every pipeline stage is traceable in the Admin console.
 
 ---
 
-## Phase D — Control, Feedback & Intelligence Loop 🟡 _In Progress_
+## 3. Current Architecture
 
-**Objective:** Give administrators and users transparency, configurability, and a feedback loop that strengthens system quality over time.
+### 3.1 Core Pipeline
 
-### D.1 — Admin / Observer Console ✅
-
-- Internal visibility into pipeline traces, drafts, and judge reasoning.
-- Secure admin-only access (email-based restriction).
-- Full-run comparison view (Draft 1 vs Draft 2 + final speech).
-
-### D.2 — Guardrail Console 🔜 _(Next Build)_
-
-- Admin-editable must-include / must-avoid rules.
-- Persisted guardrail sets per user / global scope.
-- Pipeline reads live configuration from Supabase.
-- Visualises rule hits or misses in `/admin`.
-
-### D.3 — Dual-Draft Feedback Loop 🆕
-
-- Show both drafts side-by-side to end users.
-- Capture user choice vs. judge choice in Supabase (`feedback` table).
-- Compute agreement rate and confidence metric.
-- Enables long-term model improvement.
-
-### D.4 — Confidence & Plan Transparency 🆕
-
-- Display judge confidence score (e.g., 87/100).
-- Reveal Planner summary (core message, pillars, risks).
-- Supports learning and trust in the system.
-
-**Outcome:**  
-Moves from “black-box AI” to a transparent, learnable decision engine.
+| Stage           | Purpose                                                                    | Key Output               |
+| --------------- | -------------------------------------------------------------------------- | ------------------------ |
+| **Preparser**   | Analyse raw brief text to extract intent, audience, tone, and duration.    | Structured `config.json` |
+| **Planner**     | Generate a logical plan using templates and presets.                       | JSON Plan                |
+| **Drafter**     | Produce two independent candidate drafts from the plan.                    | `draft_1`, `draft_2`     |
+| **Judge**       | Evaluate and select a winner using clarity, emotional tone, and alignment. | Winner + rationale       |
+| **Guardrail**   | Validate against “must include / must avoid” rules.                        | Pass / Fail + notes      |
+| **Editor**      | Optimise winning draft for spoken delivery.                                | Final speech             |
+| **Persistence** | Store all pipeline results in Supabase (with anon or user ID).             | DB record                |
 
 ---
 
-## Phase E — Product Experience & Expression Layer ⏳ _Upcoming_
+### 3.2 Preset & Profile System
 
-**Objective:** Elevate user experience from functional to elegant; express the system’s intelligence with polish and simplicity.
-
-### E.1 — Conversational Input & Pre-Parser 🆕
-
-- Replace multi-field form with a single conversational text box.
-- Optional voice-to-text input.
-- Auto-extracts key parameters (goal, tone, audience, duration).
-- Prompts for any missing info dynamically.
-
-### E.2 — UX Polish (Regenerate, Reveal, Theme) 🆕
-
-- “Regenerate” button for replaying the full pipeline.
-- Progressive reveal animation for each pipeline stage.
-- Light / Dark theme toggle for comfort and professionalism.
-
-### E.3 — Export & Share 🆕
-
-- Save or share generated runs as PDF or shareable links.
-- Branded output for presentations or collaboration.
-
-**Outcome:**  
-Transforms Speechwriter from a technical tool into a refined, user-centric product.
+| Component                   | Function                                                                                           |
+| --------------------------- | -------------------------------------------------------------------------------------------------- |
+| **Preset Matcher**          | Maps briefs to contextual families (e.g. _student statement_, _founder update_, _board address_).  |
+| **Implicit Profile Engine** | Builds ephemeral user profiles from input text + behaviour, refreshed each session for anon users. |
+| **Memory Layer (Planned)**  | Associates repeated users or logged-in sessions with persistent stylistic preferences.             |
 
 ---
 
-## Summary Timeline (Indicative)
+## 4. User Experience
 
-| Phase | Status         | Duration | Key Milestone                     |
-| ----- | -------------- | -------- | --------------------------------- |
-| **A** | ✅ Complete    | 2 days   | Functional scaffolding finished   |
-| **B** | ✅ Complete    | 2 days   | Full pipeline integration         |
-| **C** | ✅ Complete    | 1.5 days | Persistence & Guardrails          |
-| **D** | 🟡 In Progress | ~3 days  | Guardrail console + feedback loop |
-| **E** | ⏳ Pending     | ~3 days  | Conversational input + UX polish  |
+### 4.1 PromptBar v1 — Rectangular Edition
 
-**Next milestone:**  
-`v1.6 — Admin Guardrail Console` → unlocks configurable safety and policy controls.
+- ChatGPT-style input rectangle with rounded corners and soft grey interior.
+- Bottom-aligned action icons:
+  - ➕ Upload / attach
+  - 🎙 Microphone (voice input)
+  - 💬 Conversation mode
+- Strong black/grey contrast for icon clarity.
+- Placeholder rotates between guiding questions:
+  > “What do you want to create?”  
+  > “Who’s it for?”  
+  > “Any constraints or key themes?”
+
+### 4.2 Output Panel
+
+- Displays **Draft 1**, **Draft 2**, and **Final (Edited)** speech.
+- Clean 2-column layout; only one draft per column.
+- “Lock Selection” and “Regenerate” buttons planned for next phase.
 
 ---
 
-**Long-term Vision:**  
-A modular _Decision Optimisation Engine_ for spoken communication —  
-able to explain, learn, and improve through every user interaction.
+## 5. Persistence & Identity
+
+| User Type         | ID Source                        | Stored Data                             | Retention                          |
+| ----------------- | -------------------------------- | --------------------------------------- | ---------------------------------- |
+| **Anonymous**     | Auto-generated `anonId` (cookie) | Brief, drafts, final speech (temporary) | Cleared on browser reset / 30 days |
+| **Authenticated** | Supabase Auth `user.id`          | All pipeline data + metadata            | Persistent                         |
+
+_Anon IDs enable multi-interaction sessions without formal sign-in._
+
+---
+
+## 6. Admin & Instrumentation
+
+| View                            | Purpose                                             | Status           |
+| ------------------------------- | --------------------------------------------------- | ---------------- |
+| **Pipeline Trace**              | Full chronological log of internal stages.          | ✅ Implemented   |
+| **History Viewer**              | View saved runs per user / session.                 | ✅ Implemented   |
+| **Profile Inference Dashboard** | Tracks accuracy of inferred profiles and presets.   | 🔜 Planned (E.4) |
+| **Performance Metrics**         | Latency, guardrail passes, success rate per preset. | 🔜 Planned (E.4) |
+
+---
+
+## 7. Design System Notes
+
+| Element          | Current Spec                                                              | Global Rule            |
+| ---------------- | ------------------------------------------------------------------------- | ---------------------- |
+| **PromptBar**    | Grey #F8F8F8 bg, border #D1D1D1, radius 0.75 rem, padding 1 rem × 1.5 rem | Frozen design pattern  |
+| **Primary Text** | Inter / Sans 16 px – 20 px line height                                    | Consistent across apps |
+| **Buttons**      | Icons in 40 px circle (#000 / #FFF hover)                                 | Minimal motion         |
+| **Panels**       | 2-column grid (drafts) + single row (final)                               | Adaptive to viewport   |
+
+---
+
+## 8. Changelog
+
+### v1.5.2 (10 Nov 2025)
+
+**Added**
+
+- Preparser engine for intent and metadata extraction.
+- Preset catalog with auto-matching (e.g. student / founder).
+- Supabase persistence for anon and logged users.
+
+**Changed**
+
+- PromptBar v1 (Rectangular Edition): new geometry + bottom-icons.
+- runSpeechwriter.ts rewritten for stable persistence and guardrail fallbacks.
+
+**Fixed**
+
+- Guardrail validation failures no longer break pipeline.
+- Database schema synchronised (`brief`, `draft_1/2`, `final_speech`).
+
+---
+
+## 9. Next Phase Roadmap
+
+### **Phase E.3 – User Profile and Memory Intelligence**
+
+- Real-time profile learning and context retention across sessions.
+- Lightweight clarifier UX (“Did you mean…?” prompt).
+- Regeneration and “lock choice” mechanics in Output Panel.
+- Begin admin instrumentation for profile and preset accuracy tracking.
+
+### **Phase E.4 – Analytics and Performance**
+
+- Aggregate cross-user metrics on profile inference accuracy.
+- Dashboards for guardrail performance, generation latency, and preset hit rates.
+
+---
+
+## 10. Strategic Context
+
+Speechwriter v1.5.2 marks the completion of **Phase E.2 (Profile & Preset Intelligence)** and locks the **PromptBar v1** interface as a canonical pattern for all Micro-Factory tools.  
+This release stabilises the core pipeline, introduces structured understanding of briefs, and lays the foundation for learning profiles and persistent personalisation in Phase E.3.
+
+> “The human soul makes the choice; the machine mind makes the thinking sharper.”
 
 ---

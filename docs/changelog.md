@@ -1,5 +1,28 @@
 # Micro-Factory / Speechwriter — Changelog
 
+## [v1.5.2] – 2025-11-10
+
+### Added
+
+- **Preparser Engine**: auto-extracts key metadata (audience, tone, duration) from brief.
+- **Preset Catalog**: matches briefs to contextual templates (e.g. student personal statement, founder update).
+- **Implicit Profile System**: anonymous user tracking + session persistence via Supabase.
+
+### Changed
+
+- **PromptBar v1 (Rectangular Edition)**: redesigned input box (ChatGPT-style rectangle with rounded corners, black/grey contrast, bottom-right icons).
+- **runSpeechwriter.ts**: full persistence layer and error-safe guardrail integration.
+
+### Fixed
+
+- Guardrail validation no longer blocks pipeline completion.
+- Supabase insert constraints resolved (added `brief` + `draft_1/2` schema sync).
+
+### Notes
+
+This update locks the **PromptBar v1 UI** as canonical for all Micro-Factory products.  
+Next phase (E.3) will focus on user profile learning and memory-based personalization.
+
 ## v1.5 – Guardrail Console & Feedback Integration (Phase D)
 
 **Date:** 2025-11-09
