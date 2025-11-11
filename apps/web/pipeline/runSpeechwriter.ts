@@ -1,36 +1,43 @@
+// apps/web/pipeline/runSpeechwriter.ts
+
 import OpenAI from 'openai';
+import { createClient as createSupabaseClient, SupabaseClient } from '@supabase/supabase-js';
+
 import { preparseBrief, ParsedBrief } from './preparseBrief';
+import { matchPreset } from './presets';
 import { plannerPrompt } from './planner.prompt';
 import { drafterPrompt } from './drafter.prompt';
 import { judgePrompt } from './judge.prompt';
 import { guardrailPrompt } from './guardrail.prompt';
 import { editorPrompt } from './editor.prompt';
-import { createClient as createSupabaseServerClient } from '@/lib/supabase/server';
-import { matchPresets, PresetId } from './presets.config';
-import { loadImplicitProfile, ImplicitProfileHints } from './implicitProfile';
+import { inferTraitsFromRun, upsertMemoryTraits } from './inferTraits';
 
-type TraceEntry = {
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
+
+export type TraceEntry = {
   stage: string;
   message: string;
 };
 
-type JudgeInfo = {
-  winner: 1 | 2;
-  reason: string;
-};
-
-type GuardrailInfo = {
-  ok: boolean;
-  message: string;
-};
-
-type Drafts = {
+export type Drafts = {
   draft1: string;
   draft2: string;
   winnerLabel: 'draft1' | 'draft2';
 };
 
-export type SpeechwriterResult = {
+export type JudgeInfo = {
+  winner: 1 | 2;
+  reason: string;
+};
+
+export type GuardrailInfo = {
+  ok: boolean;
+  message: string;
+};
+
+export type PipelineResult = {
   finalSpeech: string | null;
   drafts: Drafts | null;
   judge: JudgeInfo | null;
@@ -38,85 +45,7 @@ export type SpeechwriterResult = {
   trace: TraceEntry[];
 };
 
-/* ---------- OpenAI helpers ---------- */
-
-function getOpenAI() {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    throw new Error('Missing OPENAI_API_KEY');
-  }
-  return new OpenAI({ apiKey });
-}
-
-async function callChat({
-  system,
-  user,
-  temperature = 0.3,
-  maxTokens,
-}: {
-  system: string;
-  user: string;
-  temperature?: number;
-  maxTokens?: number;
-}): Promise<string> {
-  const client = getOpenAI();
-  const completion = await client.chat.completions.create({
-    model: 'gpt-4o-mini',
-    temperature,
-    max_tokens: maxTokens,
-    messages: [
-      { role: 'system', content: system },
-      { role: 'user', content: user },
-    ],
-  });
-
-  return completion.choices[0]?.message?.content?.trim() || '';
-}
-
-/* ---------- Helpers ---------- */
-
-function extractMarkedDraft(raw: string, marker: string, endMarker?: string): string {
-  if (!raw) return '';
-  const startToken = `===${marker}===`;
-  const endToken = endMarker ? `===${endMarker}===` : `===END_${marker}===`;
-
-  const startIdx = raw.indexOf(startToken);
-  if (startIdx === -1) {
-    // No marker: assume whole thing is the draft.
-    return raw.trim();
-  }
-
-  const contentStart = startIdx + startToken.length;
-  const endIdx = raw.indexOf(endToken, contentStart);
-  const slice = endIdx === -1 ? raw.slice(contentStart) : raw.slice(contentStart, endIdx);
-  return slice.trim();
-}
-
-async function saveSpeechToHistory(args: {
-  userId: string;
-  brief: string;
-  finalSpeech: string;
-  trace: TraceEntry[];
-}) {
-  const supabase = await createSupabaseServerClient();
-
-  const { error } = await supabase.from('speeches').insert({
-    user_id: args.userId,
-    brief: args.brief,
-    final_speech: args.finalSpeech,
-    trace: args.trace,
-  });
-
-  if (error) {
-    throw error;
-  }
-}
-
-/* ---------- Main pipeline ---------- */
-
-export async function runSpeechwriterPipeline(args: {
-  userId?: string | null;
-  anonUserId?: string | null;
+type RunInput = {
   rawBrief: string;
   audience?: string;
   eventContext?: string;
@@ -124,11 +53,68 @@ export async function runSpeechwriterPipeline(args: {
   duration?: string;
   mustInclude?: string;
   mustAvoid?: string;
-}): Promise<SpeechwriterResult> {
+  userId?: string | null;
+  anonId?: string | null;
+};
+
+function addTrace(trace: TraceEntry[], stage: string, message: string) {
+  trace.push({ stage, message });
+}
+
+function getServiceSupabase(): SupabaseClient | null {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) return null;
+  return createSupabaseClient(url, key, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+}
+
+async function callJsonModel(params: { system: string; user: any }): Promise<any> {
+  const { system, user } = params;
+
+  const completion = await openai.chat.completions.create({
+    model: 'gpt-4.1-mini',
+    response_format: { type: 'json_object' },
+    messages: [
+      {
+        role: 'system',
+        content:
+          system +
+          '\n\nYou MUST reply with a single valid JSON object (json only, no explanation).',
+      },
+      {
+        role: 'user',
+        content: typeof user === 'string' ? user : JSON.stringify(user),
+      },
+    ],
+  });
+
+  const content = completion.choices[0]?.message?.content || '{}';
+  return JSON.parse(content);
+}
+
+async function callTextModel(params: { system: string; user: any }): Promise<string> {
+  const { system, user } = params;
+
+  const completion = await openai.chat.completions.create({
+    model: 'gpt-4.1-mini',
+    messages: [
+      { role: 'system', content: system },
+      {
+        role: 'user',
+        content: typeof user === 'string' ? user : JSON.stringify(user),
+      },
+    ],
+  });
+
+  return completion.choices[0]?.message?.content?.trim() || '';
+}
+
+export async function runSpeechwriterPipeline(input: RunInput): Promise<PipelineResult> {
   const trace: TraceEntry[] = [];
+
   const {
-    userId,
-    anonUserId,
     rawBrief,
     audience,
     eventContext,
@@ -136,7 +122,9 @@ export async function runSpeechwriterPipeline(args: {
     duration,
     mustInclude,
     mustAvoid,
-  } = args;
+    userId = null,
+    anonId = null,
+  } = input;
 
   if (!rawBrief || !rawBrief.trim()) {
     return {
@@ -144,222 +132,92 @@ export async function runSpeechwriterPipeline(args: {
       drafts: null,
       judge: null,
       guardrail: null,
-      trace: [
-        {
-          stage: 'input',
-          message: 'No brief provided.',
-        },
-      ],
+      trace: [{ stage: 'error', message: 'No brief provided.' }],
     };
   }
 
-  /* --- Identity --- */
+  const supabase = getServiceSupabase();
 
-  if (anonUserId) {
-    trace.push({
-      stage: 'identity',
-      message: `Anon identity present: ${anonUserId.slice(0, 8)}…`,
-    });
+  // --- Memory: load existing traits (for observability only for now) ---
+  if (supabase && (userId || anonId)) {
+    try {
+      const eqFilter = userId ? { user_id: userId } : { anon_id: anonId };
+
+      const { data, error } = await supabase
+        .from('speechwriter_memory')
+        .select('traits, runs_count')
+        .match(eqFilter)
+        .maybeSingle();
+
+      if (error && error.code !== 'PGRST116') {
+        addTrace(trace, 'memory', `Memory load failed: ${error.message}`);
+      } else if (data) {
+        addTrace(trace, 'memory', 'Loaded prior memory traits for this identity.');
+      } else {
+        addTrace(trace, 'memory', 'No existing memory found for this identity.');
+      }
+    } catch (err: any) {
+      addTrace(trace, 'memory', `Memory load exception: ${err?.message || String(err)}`);
+    }
+  } else {
+    addTrace(trace, 'memory', 'Memory load skipped (no identity or service key).');
   }
 
-  /* --- Pre-Parser --- */
-
-  let parsedBrief: ParsedBrief | {} = {};
+  // --- Preparser ---
+  let parsed: ParsedBrief | null = null;
   try {
-    parsedBrief = await preparseBrief(rawBrief);
-    trace.push({
-      stage: 'preparser',
-      message: 'Preparser: parsed brief into structured config.',
+    parsed = await preparseBrief({
+      rawBrief,
+      audience,
+      eventContext,
+      tone,
+      duration,
+      mustInclude,
+      mustAvoid,
     });
+    addTrace(trace, 'preparser', 'Preparser: parsed brief into structured config.');
   } catch (err: any) {
-    console.error('Preparser error', err);
-    trace.push({
-      stage: 'preparser',
-      message: `Preparser failed, continuing without structured hints: ${
-        err?.message || 'unknown error'
-      }`,
-    });
+    addTrace(
+      trace,
+      'preparser',
+      `Preparser failed; continuing with raw brief. ${err?.message || String(err)}`
+    );
   }
 
-  /* --- Merge explicit overrides as soft hints --- */
-
-  const mergedContext: ParsedBrief & {
-    must_include?: string[];
-    must_avoid?: string[];
-  } = {
-    ...(parsedBrief as ParsedBrief),
-    audience_inferred: audience || (parsedBrief as ParsedBrief).audience_inferred,
-    event_context: eventContext || (parsedBrief as ParsedBrief).event_context,
-    tone_guess: tone || (parsedBrief as ParsedBrief).tone_guess,
-    duration_hint: duration || (parsedBrief as ParsedBrief).duration_hint,
-    must_include: [
-      ...(((parsedBrief as ParsedBrief).must_include as string[]) || []),
-      ...(mustInclude ? [mustInclude] : []),
-    ],
-    must_avoid: [
-      ...(((parsedBrief as ParsedBrief).must_avoid as string[]) || []),
-      ...(mustAvoid ? [mustAvoid] : []),
-    ],
-  };
-
-  const contextSummary = JSON.stringify(mergedContext);
-
-  /* --- Presets --- */
-
-  let matchedPresets: PresetId[] = [];
+  // --- Preset match (soft) ---
+  let presetId: string | null = null;
   try {
-    matchedPresets = matchPresets(mergedContext as ParsedBrief);
-    if (matchedPresets.length > 0) {
-      trace.push({
-        stage: 'presets',
-        message: `Presets matched: ${matchedPresets.join(', ')}.`,
-      });
+    const match = matchPreset({
+      rawBrief,
+      ...(parsed || {}),
+    });
+    if (match) {
+      presetId = match.id;
+      addTrace(trace, 'presets', `Presets matched: ${match.id}.`);
     } else {
-      trace.push({
-        stage: 'presets',
-        message: 'Presets: no strong match; proceeding generic.',
-      });
+      addTrace(trace, 'presets', 'No strong preset match; using generic planner.');
     }
   } catch (err: any) {
-    console.error('Preset match error', err);
-    trace.push({
-      stage: 'presets',
-      message: 'Presets: error in matching, ignored.',
-    });
-    matchedPresets = [];
+    addTrace(trace, 'presets', `Preset match failed (non-fatal): ${err?.message || String(err)}`);
   }
 
-  /* --- Implicit profile (read-only) --- */
-
-  let profileHints: ImplicitProfileHints | null = null;
+  // --- Planner ---
+  let planJson: any = null;
   try {
-    profileHints = await loadImplicitProfile({ userId });
-    if (profileHints) {
-      const parts = [
-        `segment=${profileHints.segment}`,
-        profileHints.toneBias ? `tone=${profileHints.toneBias}` : '',
-        profileHints.formalityBias ? `formality=${profileHints.formalityBias}` : '',
-        profileHints.structureBias ? `structure=${profileHints.structureBias}` : '',
-      ]
-        .filter(Boolean)
-        .join(', ');
+    addTrace(trace, 'planner', 'Planner: generating structured plan JSON.');
 
-      trace.push({
-        stage: 'profile',
-        message: `Profile: loaded hints (${parts || 'no explicit biases'})`,
-      });
-    } else {
-      trace.push({
-        stage: 'profile',
-        message: 'Profile: none loaded (new user or no profile set).',
-      });
-    }
-  } catch (err: any) {
-    console.warn('Profile load error', err);
-    trace.push({
-      stage: 'profile',
-      message: 'Profile: error loading, ignored.',
-    });
-    profileHints = null;
-  }
-
-  /* --- Planner --- */
-
-  let planJson = '';
-  try {
-    const plannerUserPrompt = `
-Brief:
-${rawBrief}
-
-Context hints (may be partial):
-${contextSummary}
-
-Matched presets (hints only, may be empty):
-${JSON.stringify(matchedPresets)}
-
-Implicit profile hints (use ONLY if consistent with this specific request):
-${JSON.stringify(profileHints || {})}
-
-Using the above, produce a structured plan in JSON as described in the planner prompt.
-`.trim();
-
-    const planRaw = await callChat({
+    planJson = await callJsonModel({
       system: plannerPrompt,
-      user: plannerUserPrompt,
-      temperature: 0.2,
+      user: {
+        rawBrief,
+        parsedBrief: parsed,
+        presetId,
+      },
     });
 
-    JSON.parse(planRaw);
-    planJson = planRaw;
-
-    trace.push({
-      stage: 'planner',
-      message: 'Planner: generated structured plan JSON.',
-    });
+    addTrace(trace, 'planner', 'Planner: generated structured plan JSON.');
   } catch (err: any) {
-    console.error('Planner error / JSON parse failure', err);
-    trace.push({
-      stage: 'planner',
-      message: 'Planner: failed to produce valid JSON. Falling back to minimal implicit plan.',
-    });
-
-    planJson = JSON.stringify({
-      core_message: rawBrief.slice(0, 400),
-      audience: mergedContext.audience_inferred || null,
-      tone: mergedContext.tone_guess || null,
-      format: (mergedContext as any).format_guess || 'speech',
-      sections: [],
-    });
-  }
-
-  /* --- Drafter: two candidate drafts (clean) --- */
-
-  let draft1 = '';
-  let draft2 = '';
-
-  try {
-    const base = `
-You are the Drafter stage.
-
-Here is the plan (JSON):
-${planJson}
-
-Write one spoken-first draft based on this plan.
-If markers like ===DRAFT_1=== / ===END_DRAFT_1=== are used, ensure ONLY one draft is inside them.
-`.trim();
-
-    const raw1 = await callChat({
-      system: drafterPrompt,
-      user: base + '\n\nDraft 1:',
-      temperature: 0.7,
-    });
-
-    const raw2 = await callChat({
-      system: drafterPrompt,
-      user: base + '\n\nDraft 2 (different angle):',
-      temperature: 0.9,
-    });
-
-    // Support both marker and non-marker styles safely.
-    draft1 =
-      extractMarkedDraft(raw1, 'DRAFT_1') || extractMarkedDraft(raw1, 'DRAFT_A') || raw1.trim();
-
-    draft2 =
-      extractMarkedDraft(raw2, 'DRAFT_2') || extractMarkedDraft(raw2, 'DRAFT_B') || raw2.trim();
-
-    trace.push({
-      stage: 'drafter',
-      message: 'Drafter: produced 2 candidate drafts.',
-    });
-  } catch (err: any) {
-    console.error('Drafter error', err);
-    trace.push({
-      stage: 'drafter',
-      message: `Drafter failed: ${err?.message || 'unknown error'}`,
-    });
-  }
-
-  if (!draft1 && !draft2) {
+    addTrace(trace, 'planner', `Planner failed: ${err?.message || String(err)}`);
     return {
       finalSpeech: null,
       drafts: null,
@@ -369,181 +227,216 @@ If markers like ===DRAFT_1=== / ===END_DRAFT_1=== are used, ensure ONLY one draf
     };
   }
 
-  /* --- Judge --- */
-
-  let judge: JudgeInfo | null = null;
-  let winnerLabel: 'draft1' | 'draft2' = 'draft1';
-  let winningDraft = draft1 || draft2;
-
+  // --- Drafter (two drafts) ---
+  let draft1 = '';
+  let draft2 = '';
   try {
-    const judgeInput = JSON.stringify({
-      plan: JSON.parse(planJson),
-      draft1,
-      draft2,
+    addTrace(trace, 'drafter', 'Drafter: creating two candidate drafts.');
+
+    const draftsJson = await callJsonModel({
+      system: drafterPrompt,
+      user: {
+        plan: planJson,
+        variants: 2,
+      },
     });
 
-    const judgeRaw = await callChat({
-      system: judgePrompt,
-      user: judgeInput,
-      temperature: 0,
-    });
+    draft1 = (draftsJson.draft_1 || draftsJson.draft1 || '').trim();
+    draft2 = (draftsJson.draft_2 || draftsJson.draft2 || '').trim();
 
-    const judgeParsed = JSON.parse(judgeRaw);
-    const winner = judgeParsed.winner === 2 ? 2 : 1;
+    if (!draft1 && !draft2) {
+      throw new Error('No drafts returned from drafter.');
+    }
 
-    judge = {
-      winner,
-      reason: typeof judgeParsed.reason === 'string' ? judgeParsed.reason : 'No reason provided.',
+    addTrace(trace, 'drafter', 'Drafter: produced 2 drafts.');
+  } catch (err: any) {
+    addTrace(trace, 'drafter', `Drafter failed: ${err?.message || String(err)}`);
+    return {
+      finalSpeech: null,
+      drafts: null,
+      judge: null,
+      guardrail: null,
+      trace,
     };
-
-    if (winner === 2 && draft2) {
-      winnerLabel = 'draft2';
-      winningDraft = draft2;
-    } else {
-      winnerLabel = 'draft1';
-      winningDraft = draft1 || draft2;
-    }
-
-    trace.push({
-      stage: 'judge',
-      message: `Judge: selected draft ${winner} — ${judge.reason.slice(0, 180)}`,
-    });
-  } catch (err: any) {
-    console.error('Judge error', err);
-    judge = null;
-    winnerLabel = draft1 ? 'draft1' : 'draft2';
-    winningDraft = draft1 || draft2;
-    trace.push({
-      stage: 'judge',
-      message: 'Judge: failed to parse decision. Defaulted to first non-empty draft.',
-    });
   }
 
-  /* --- Guardrail --- */
+  // --- Judge ---
+  let winner: 1 | 2 = 1;
+  let judgeReason = '';
+  try {
+    addTrace(trace, 'judge', 'Judge: evaluating drafts.');
 
+    const judgeJson = await callJsonModel({
+      system: judgePrompt,
+      user: {
+        plan: planJson,
+        draft_1: draft1,
+        draft_2: draft2,
+      },
+    });
+
+    const choice = Number(judgeJson.winner || judgeJson.choice || 1);
+    winner = choice === 2 ? 2 : 1;
+    judgeReason = judgeJson.reason || judgeJson.justification || '';
+
+    addTrace(
+      trace,
+      'judge',
+      `Judge: selected draft ${winner} — ${String(judgeReason || 'no reason provided').slice(
+        0,
+        260
+      )}`
+    );
+  } catch (err: any) {
+    addTrace(trace, 'judge', `Judge failed; defaulting to draft 1. ${err?.message || String(err)}`);
+    winner = 1;
+  }
+
+  const winnerLabel: 'draft1' | 'draft2' = winner === 2 ? 'draft2' : 'draft1';
+  let workingDraft = winner === 2 ? draft2 : draft1;
+
+  // --- Guardrail ---
   let guardrail: GuardrailInfo | null = null;
-  let guardedDraft = winningDraft;
-
   try {
-    const guardrailInput = JSON.stringify({
-      brief: rawBrief,
-      context: mergedContext,
-      draft: winningDraft,
-    });
+    addTrace(trace, 'guardrail', 'Guardrail: checking draft against constraints and safety.');
 
-    const guardrailRaw = await callChat({
+    const guardJson = await callJsonModel({
       system: guardrailPrompt,
-      user: guardrailInput,
-      temperature: 0,
+      user: {
+        plan: planJson,
+        draft: workingDraft,
+      },
     });
 
-    let ok = true;
-    let message = 'OK — no material issues found.';
-    let edited = winningDraft;
+    const adjusted = guardJson.adjusted_draft || guardJson.safeDraft || null;
+    const issues = guardJson.issues_summary || guardJson.issues || guardJson.reason || null;
 
-    try {
-      const g = JSON.parse(guardrailRaw);
-      ok = g.ok !== false;
-      message =
-        typeof g.message === 'string' ? g.message : ok ? message : 'Guardrail adjustments applied.';
-      edited = typeof g.draft === 'string' && g.draft.trim().length ? g.draft : winningDraft;
-    } catch {
-      edited = winningDraft;
-      message = guardrailRaw.slice(0, 240) || message;
-    }
-
-    guardrail = { ok, message };
-    guardedDraft = edited;
-
-    trace.push({
-      stage: 'guardrail',
-      message: `Guardrail: ${message.slice(0, 160)}`,
-    });
-  } catch (err: any) {
-    console.error('Guardrail error', err);
-    guardrail = null;
-    guardedDraft = winningDraft;
-    trace.push({
-      stage: 'guardrail',
-      message: 'Guardrail: failed or skipped; using judge-selected draft.',
-    });
-  }
-
-  /* --- Editor --- */
-
-  let finalSpeech: string | null = null;
-
-  try {
-    const editorInput = JSON.stringify({
-      brief: rawBrief,
-      context: mergedContext,
-      draft: guardedDraft,
-    });
-
-    const edited = await callChat({
-      system: editorPrompt,
-      user: editorInput,
-      temperature: 0.4,
-    });
-
-    finalSpeech = edited && edited.trim().length ? edited.trim() : guardedDraft;
-
-    trace.push({
-      stage: 'editor',
-      message: 'Editor: final speech ready.',
-    });
-  } catch (err: any) {
-    console.error('Editor error', err);
-    finalSpeech = guardedDraft || null;
-    trace.push({
-      stage: 'editor',
-      message: 'Editor: failed; falling back to guardrailed draft as final speech.',
-    });
-  }
-
-  /* --- Persistence --- */
-
-  const drafts: Drafts | null = draft1 || draft2 ? { draft1, draft2, winnerLabel } : null;
-
-  try {
-    if (userId && finalSpeech) {
-      await saveSpeechToHistory({
-        userId,
-        brief: rawBrief,
-        finalSpeech,
+    if (adjusted) {
+      workingDraft = String(adjusted);
+      guardrail = {
+        ok: true,
+        message: issues || 'Adjusted to comply with constraints / safety.',
+      };
+      addTrace(
         trace,
-      });
-
-      trace.push({
-        stage: 'persistence',
-        message: 'Saved speech to history for current user.',
-      });
-    } else if (!userId) {
-      trace.push({
-        stage: 'persistence',
-        message: 'No user id available; run not saved to history (likely anonymous or auth issue).',
-      });
-    } else if (!finalSpeech) {
-      trace.push({
-        stage: 'persistence',
-        message: 'No final speech produced; nothing saved to history.',
-      });
+        'guardrail',
+        `Guardrail: applied minimal edits. Issues: ${String(guardrail.message).slice(0, 260)}`
+      );
+    } else {
+      guardrail = {
+        ok: true,
+        message: 'OK — no material issues found.',
+      };
+      addTrace(trace, 'guardrail', 'Guardrail: OK — no material issues found.');
     }
   } catch (err: any) {
-    console.error('Error saving speech to history', err);
-    trace.push({
-      stage: 'persistence',
-      message: `Failed to save: ${err?.message || 'unknown error'}`,
-    });
+    guardrail = {
+      ok: false,
+      message: 'Guardrail failed or skipped; using judge-selected draft.',
+    };
+    addTrace(
+      trace,
+      'guardrail',
+      `Guardrail: failed or skipped; using judge-selected draft. ${err?.message || String(err)}`
+    );
   }
 
-  /* --- Return --- */
+  // --- Editor ---
+  let finalSpeech = workingDraft;
+  try {
+    addTrace(trace, 'editor', 'Editor: tightening winning draft for spoken delivery.');
+
+    const edited = await callTextModel({
+      system: editorPrompt,
+      user: {
+        plan: planJson,
+        draft: workingDraft,
+      },
+    });
+
+    if (edited.trim()) {
+      finalSpeech = edited.trim();
+    }
+
+    addTrace(trace, 'editor', 'Editor: final speech ready.');
+  } catch (err: any) {
+    addTrace(
+      trace,
+      'editor',
+      `Editor failed; using unedited draft. ${err?.message || String(err)}`
+    );
+  }
+
+  const drafts: Drafts = {
+    draft1,
+    draft2,
+    winnerLabel,
+  };
+
+  const judgeInfo: JudgeInfo = {
+    winner,
+    reason: judgeReason,
+  };
+
+  // --- Persistence: speeches ---
+  if (supabase && (userId || anonId) && finalSpeech) {
+    try {
+      const insert: any = {
+        brief: rawBrief,
+        draft_1: draft1,
+        draft_2: draft2,
+        final_speech: finalSpeech,
+        trace,
+      };
+      if (userId) insert.user_id = userId;
+      if (anonId) insert.anon_id = anonId;
+
+      const { error } = await supabase.from('speeches').insert(insert);
+
+      if (error) {
+        addTrace(trace, 'persistence', `Failed to save: ${error.message}`);
+      } else {
+        addTrace(trace, 'persistence', 'Saved speech to history for current identity.');
+      }
+    } catch (err: any) {
+      addTrace(trace, 'persistence', `Failed to save speech: ${err?.message || String(err)}`);
+    }
+  } else {
+    addTrace(trace, 'persistence', 'No user/anon identity or final speech; run not saved.');
+  }
+
+  // --- Memory: update traits (non-blocking) ---
+  try {
+    if (supabase && (userId || anonId) && finalSpeech) {
+      const inferred = inferTraitsFromRun({
+        planJson,
+        finalSpeech,
+        presetId: presetId || undefined,
+      });
+
+      if (inferred && Object.keys(inferred).length > 0) {
+        await upsertMemoryTraits({
+          supabase,
+          userId,
+          anonId,
+          traits: inferred,
+        });
+        addTrace(trace, 'memory', 'Updated memory traits for this identity.');
+      } else {
+        addTrace(trace, 'memory', 'No new traits inferred for this run.');
+      }
+    }
+  } catch (err: any) {
+    addTrace(trace, 'memory', `Failed to update memory traits: ${err?.message || String(err)}`);
+  }
 
   return {
     finalSpeech,
     drafts,
-    judge,
+    judge: judgeInfo,
     guardrail,
     trace,
   };
 }
+
+export default runSpeechwriterPipeline;

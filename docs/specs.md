@@ -1,155 +1,166 @@
-# Speechwriter Specification
+# 🧠 Speechwriter Project Specification
 
-**Version:** v1.5.2  
-**Updated:** 10 November 2025  
-**Owner:** Halo MicroFactory
-
----
-
-## 1. Overview
-
-**Speechwriter** is a multi-agent system that converts a user’s natural brief into a world-class spoken draft through a structured pipeline:  
-**Preparser → Planner → Drafter → Judge → Guardrail → Editor → Persistence.**
-
-It supports both **anonymous** and **authenticated** users and is designed around a principle of _one-shot usability_ — the user should be able to type (or speak) a single sentence and receive a professional, speech-ready output. Context and history enhance, but are never required.
+**Version:** v1.5.3 (Phase E.3 – Profile Memory & Context Learning)  
+**Date:** November 2025
 
 ---
 
-## 2. Product Principles
+## 🔍 Project Overview
 
-1. **Always one-shot usable.** A first-time user gets value immediately.
-2. **Context only enhances.** Profile, presets, or memory should add precision, not friction.
-3. **Implicit > Explicit.** Infer from behaviour before asking for data.
-4. **Simplicity over configuration.** No menus, toggles, or setup before the first run.
-5. **Transparency for builders.** Every pipeline stage is traceable in the Admin console.
+Speechwriter is the reference implementation for the **Micro-Factory system**, designed to demonstrate how a modular LLM pipeline can generate, judge, and refine high-quality documents — from speeches to personal statements to board briefings — with privacy, explainability, and structured intelligence.
 
----
+It is the first production-grade product under the Micro-Factory umbrella: **a conversational, profile-aware writing assistant** that turns abstract briefs into polished, live-delivery-ready text.
 
-## 3. Current Architecture
-
-### 3.1 Core Pipeline
-
-| Stage           | Purpose                                                                    | Key Output               |
-| --------------- | -------------------------------------------------------------------------- | ------------------------ |
-| **Preparser**   | Analyse raw brief text to extract intent, audience, tone, and duration.    | Structured `config.json` |
-| **Planner**     | Generate a logical plan using templates and presets.                       | JSON Plan                |
-| **Drafter**     | Produce two independent candidate drafts from the plan.                    | `draft_1`, `draft_2`     |
-| **Judge**       | Evaluate and select a winner using clarity, emotional tone, and alignment. | Winner + rationale       |
-| **Guardrail**   | Validate against “must include / must avoid” rules.                        | Pass / Fail + notes      |
-| **Editor**      | Optimise winning draft for spoken delivery.                                | Final speech             |
-| **Persistence** | Store all pipeline results in Supabase (with anon or user ID).             | DB record                |
+> **Guiding Principle:**  
+> _Always one-shot usable. Context only ever enhances._
 
 ---
 
-### 3.2 Preset & Profile System
+## 🧩 Architecture Summary
 
-| Component                   | Function                                                                                           |
-| --------------------------- | -------------------------------------------------------------------------------------------------- |
-| **Preset Matcher**          | Maps briefs to contextual families (e.g. _student statement_, _founder update_, _board address_).  |
-| **Implicit Profile Engine** | Builds ephemeral user profiles from input text + behaviour, refreshed each session for anon users. |
-| **Memory Layer (Planned)**  | Associates repeated users or logged-in sessions with persistent stylistic preferences.             |
-
----
-
-## 4. User Experience
-
-### 4.1 PromptBar v1 — Rectangular Edition
-
-- ChatGPT-style input rectangle with rounded corners and soft grey interior.
-- Bottom-aligned action icons:
-  - ➕ Upload / attach
-  - 🎙 Microphone (voice input)
-  - 💬 Conversation mode
-- Strong black/grey contrast for icon clarity.
-- Placeholder rotates between guiding questions:
-  > “What do you want to create?”  
-  > “Who’s it for?”  
-  > “Any constraints or key themes?”
-
-### 4.2 Output Panel
-
-- Displays **Draft 1**, **Draft 2**, and **Final (Edited)** speech.
-- Clean 2-column layout; only one draft per column.
-- “Lock Selection” and “Regenerate” buttons planned for next phase.
+| Layer                  | Role                                                                                  |
+| ---------------------- | ------------------------------------------------------------------------------------- |
+| **Frontend (Next 14)** | Conversational interface, admin observer, history, prompt management                  |
+| **API Routes**         | Orchestrate the Planner → Drafter → Judge → Guardrail → Editor → Persistence pipeline |
+| **Pipeline Directory** | Holds all structured prompt logic (TypeScript + system prompts)                       |
+| **Supabase**           | Authentication, persistence (speeches, history, profiles, memory)                     |
+| **Docs Folder**        | `specs.md` and `changelog.md` — versioned documentation                               |
 
 ---
 
-## 5. Persistence & Identity
+## 📁 Repository Layout (Simplified)
 
-| User Type         | ID Source                        | Stored Data                             | Retention                          |
-| ----------------- | -------------------------------- | --------------------------------------- | ---------------------------------- |
-| **Anonymous**     | Auto-generated `anonId` (cookie) | Brief, drafts, final speech (temporary) | Cleared on browser reset / 30 days |
-| **Authenticated** | Supabase Auth `user.id`          | All pipeline data + metadata            | Persistent                         |
-
-_Anon IDs enable multi-interaction sessions without formal sign-in._
-
----
-
-## 6. Admin & Instrumentation
-
-| View                            | Purpose                                             | Status           |
-| ------------------------------- | --------------------------------------------------- | ---------------- |
-| **Pipeline Trace**              | Full chronological log of internal stages.          | ✅ Implemented   |
-| **History Viewer**              | View saved runs per user / session.                 | ✅ Implemented   |
-| **Profile Inference Dashboard** | Tracks accuracy of inferred profiles and presets.   | 🔜 Planned (E.4) |
-| **Performance Metrics**         | Latency, guardrail passes, success rate per preset. | 🔜 Planned (E.4) |
-
----
-
-## 7. Design System Notes
-
-| Element          | Current Spec                                                              | Global Rule            |
-| ---------------- | ------------------------------------------------------------------------- | ---------------------- |
-| **PromptBar**    | Grey #F8F8F8 bg, border #D1D1D1, radius 0.75 rem, padding 1 rem × 1.5 rem | Frozen design pattern  |
-| **Primary Text** | Inter / Sans 16 px – 20 px line height                                    | Consistent across apps |
-| **Buttons**      | Icons in 40 px circle (#000 / #FFF hover)                                 | Minimal motion         |
-| **Panels**       | 2-column grid (drafts) + single row (final)                               | Adaptive to viewport   |
+apps/  
+ web/  
+ app/  
+ login/  
+ dashboard/  
+ generate/  
+ history/  
+ admin/  
+ pipeline/  
+ preparseBrief.ts  
+ planner.prompt.ts  
+ drafter.prompt.ts  
+ judge.prompt.ts  
+ guardrail.prompt.ts  
+ editor.prompt.ts  
+ runSpeechwriter.ts  
+docs/  
+ specs.md  
+ changelog.md
 
 ---
 
-## 8. Changelog
+## ⚙️ Pipeline Logic (Current Version)
 
-### v1.5.2 (10 Nov 2025)
+1. **Preparser** – parses raw text into structured config (`goal`, `audience`, `tone`, `duration`, `mustInclude`, `mustAvoid`).
+2. **Presets** – identifies contextual archetype (`student_personal_statement`, `ceo_allhands`, etc.).
+3. **Planner** – builds structured JSON plan.
+4. **Drafter** – produces two candidate drafts.
+5. **Judge** – selects winner, logs reasoning.
+6. **Guardrail** – enforces factual/tone constraints.
+7. **Editor** – refines for spoken delivery.
+8. **Persistence** – saves run (drafts, final, trace, metadata).
+9. **Memory (Phase E.3)** – updates lightweight user-trait memory to improve future outputs.
 
-**Added**
-
-- Preparser engine for intent and metadata extraction.
-- Preset catalog with auto-matching (e.g. student / founder).
-- Supabase persistence for anon and logged users.
-
-**Changed**
-
-- PromptBar v1 (Rectangular Edition): new geometry + bottom-icons.
-- runSpeechwriter.ts rewritten for stable persistence and guardrail fallbacks.
-
-**Fixed**
-
-- Guardrail validation failures no longer break pipeline.
-- Database schema synchronised (`brief`, `draft_1/2`, `final_speech`).
+Each stage appends to the `trace` array for Admin visibility.
 
 ---
 
-## 9. Next Phase Roadmap
+## 🧱 Phase Progression Summary
 
-### **Phase E.3 – User Profile and Memory Intelligence**
+| Phase   | Title                             | Core Deliverable                                | Status           |
+| ------- | --------------------------------- | ----------------------------------------------- | ---------------- |
+| **A**   | Environment & Scaffolding         | Repo setup + pipeline shell                     | ✅ Done          |
+| **B**   | Stabilisation & Core Logic        | Reliable end-to-end run                         | ✅ Done          |
+| **C**   | Persistence & Admin               | Supabase persistence + admin routes             | ✅ Done          |
+| **D**   | Intelligence & Observer Tools     | Dual-draft system + feedback logging + observer | ✅ Done          |
+| **E.1** | Conversational Interface          | ChatGPT-style PromptBar + UI polish             | ✅ Done          |
+| **E.2** | Profile & Preset Intelligence     | Preparser + implicit role detection + presets   | ✅ Done (v1.5.2) |
+| **E.3** | Profile Memory & Context Learning | Evolving implicit memory per user               | 🔄 In Progress   |
+| **E.4** | Analytics & Admin Instrumentation | Aggregated metrics on memory & accuracy         | ⏳ Planned       |
+| **E.5** | Deployment                        | Hosted test site for real users (e.g. Dan)      | ⏳ Planned       |
 
-- Real-time profile learning and context retention across sessions.
-- Lightweight clarifier UX (“Did you mean…?” prompt).
-- Regeneration and “lock choice” mechanics in Output Panel.
-- Begin admin instrumentation for profile and preset accuracy tracking.
+---
 
-### **Phase E.4 – Analytics and Performance**
+## 🧠 Phase E.3 – Profile Memory & Context Learning
 
-- Aggregate cross-user metrics on profile inference accuracy.
-- Dashboards for guardrail performance, generation latency, and preset hit rates.
+### Objective
+
+Move from “smart per-run” to “quietly compounding intelligence per user” without adding friction.  
+Speechwriter should **remember** patterns (tone, role, preferred length, taboos) and use them to sharpen future outputs — all while preserving one-shot usability.
+
+### Design Principles
+
+1. **No extra forms** – memory is implicit; explicit profile optional.
+2. **Soft influence only** – memory biases defaults; never overrides user input.
+3. **Per-identity basis** – keyed by `user_id` or `anon_id`.
+4. **Explainable to admins** – every trait viewable via Admin Console.
+5. **Revocable** – ability to reset/forget a user memory later.
+
+### Implementation Scope
+
+#### Database Layer
+
+The following SQL defines the `speechwriter_memory` table and applies secure access policies.
+
+create table if not exists speechwriter_memory (  
+ id uuid primary key default gen_random_uuid(),  
+ user_id uuid references auth.users(id),  
+ anon_id text,  
+ traits jsonb not null default '{}'::jsonb,  
+ runs_count integer not null default 0,  
+ last_updated timestamptz not null default now()  
+);
+
+create unique index if not exists idx_speechwriter_memory_user_id  
+ on speechwriter_memory(user_id) where user_id is not null;
+
+create unique index if not exists idx_speechwriter_memory_anon_id  
+ on speechwriter_memory(anon_id) where anon_id is not null;
+
+alter table speechwriter_memory enable row level security;
+
+do $$  
+begin  
+ if not exists (  
+ select 1 from pg_policies  
+ where tablename = 'speechwriter_memory'  
+ and policyname = 'service_role_full_access_speechwriter_memory'  
+ ) then  
+ create policy service_role_full_access_speechwriter_memory  
+ on speechwriter_memory  
+ for all  
+ using (auth.role() = 'service_role')  
+ with check (auth.role() = 'service_role');  
+ end if;  
+end$$;
+
+#### Server Logic
+
+- On **new run**:  
+  `loadMemory(userId | anonId)` → inject traits into Preparser / Planner.
+- On **successful completion**:  
+  derive new traits (average tone, length, topic) → `upsertMemory`.
+- Store aggregate metadata: `runs_count`, `last_updated`.
+
+#### Admin Integration
+
+- Add read-only memory view in Admin Console.
+- Later (Phase E.4): aggregate metrics showing improvement in inferred tone/role accuracy.
 
 ---
 
-## 10. Strategic Context
+## 🧭 Future Outlook (Beyond E.3)
 
-Speechwriter v1.5.2 marks the completion of **Phase E.2 (Profile & Preset Intelligence)** and locks the **PromptBar v1** interface as a canonical pattern for all Micro-Factory tools.  
-This release stabilises the core pipeline, introduces structured understanding of briefs, and lays the foundation for learning profiles and persistent personalisation in Phase E.3.
+1. **Phase E.4 – Analytics & Admin Instrumentation**  
+   Aggregate statistics on how well Speechwriter is inferring user intent and applying memory traits.
 
-> “The human soul makes the choice; the machine mind makes the thinking sharper.”
+2. **Phase E.5 – Deployment**  
+   Public test site for Dan and other early users.  
+   Authentication, Supabase hosting, custom domain, and telemetry setup.
 
 ---
+
+**End of Document**

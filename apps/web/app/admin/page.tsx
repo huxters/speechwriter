@@ -1,310 +1,163 @@
+import Link from 'next/link';
 import { redirect } from 'next/navigation';
-import { createClient } from '@/lib/supabase/server';
-
-type DraftsInfo = {
-  draft1: string;
-  draft2: string;
-  winnerLabel: 'draft1' | 'draft2';
-} | null;
-
-type JudgeInfo = {
-  winner: 1 | 2;
-  reason: string;
-} | null;
-
-type TraceEntry = {
-  stage: string;
-  message: string;
-};
-
-type FeedbackAgg = {
-  count: number;
-  agreeCount: number;
-};
+import { createClient as createServerClient } from '@/lib/supabase/server';
 
 function getAdminEmails(): string[] {
-  const env = process.env.NEXT_PUBLIC_ADMIN_EMAILS || process.env.ADMIN_EMAILS || '';
-  return env
+  return (process.env.NEXT_PUBLIC_ADMIN_EMAILS || '')
     .split(',')
     .map(e => e.trim().toLowerCase())
     .filter(Boolean);
 }
 
-export default async function AdminPage() {
-  const supabase = await createClient();
+async function requireAdmin() {
+  const supabase = await createServerClient();
   const {
-    data: { session },
-  } = await supabase.auth.getSession();
-
-  if (!session) {
-    redirect('/login');
-  }
+    data: { user },
+  } = await supabase.auth.getUser();
 
   const adminEmails = getAdminEmails();
-  const isAdmin = adminEmails.includes((session.user.email || '').toLowerCase());
 
-  if (!isAdmin) {
-    return (
-      <main
-        style={{
-          padding: '2rem',
-          maxWidth: 900,
-          margin: '0 auto',
-          fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif',
-        }}
-      >
-        <h1 style={{ fontSize: 24, fontWeight: 600, marginBottom: 8 }}>Admin</h1>
-        <p
-          style={{
-            fontSize: 13,
-            color: '#6b7280',
-            marginBottom: 16,
-          }}
-        >
-          You are signed in but not authorised to view the admin console.
-        </p>
-      </main>
-    );
+  if (!user || !user.email || !adminEmails.includes(user.email.toLowerCase())) {
+    redirect('/');
   }
 
-  // Load recent speeches
-  const { data: speeches, error: speechesError } = await supabase
-    .from('speeches')
-    .select('id, created_at, brief, final_speech, drafts, judge, trace')
-    .order('created_at', { ascending: false })
-    .limit(30);
+  return user;
+}
 
-  // Load feedback for those speeches
-  const feedbackBySpeech = new Map<string, FeedbackAgg>();
-
-  if (!speechesError && speeches && speeches.length > 0) {
-    const speechIds = speeches.map(s => s.id);
-
-    const { data: feedback, error: feedbackError } = await supabase
-      .from('speech_feedback')
-      .select('speech_id, agreement')
-      .in('speech_id', speechIds);
-
-    if (!feedbackError && feedback) {
-      for (const row of feedback) {
-        const key = row.speech_id as string;
-        const prev = feedbackBySpeech.get(key) || {
-          count: 0,
-          agreeCount: 0,
-        };
-        const next = {
-          count: prev.count + 1,
-          agreeCount: prev.agreeCount + (row.agreement ? 1 : 0),
-        };
-        feedbackBySpeech.set(key, next);
-      }
-    }
-  }
+export default async function AdminPage() {
+  const user = await requireAdmin();
 
   return (
     <main
       style={{
-        padding: '2rem',
-        maxWidth: 1100,
+        padding: '24px',
+        maxWidth: 1000,
         margin: '0 auto',
-        fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif',
+        fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, sans-serif',
       }}
     >
-      <p
-        style={{
-          fontSize: 11,
-          color: '#9ca3af',
-          marginBottom: 4,
-          letterSpacing: 0.08,
-        }}
-      >
-        ADMIN / OBSERVER
-      </p>
       <h1
         style={{
-          fontSize: 28,
+          fontSize: 26,
           fontWeight: 600,
-          marginBottom: 4,
+          marginBottom: 6,
         }}
       >
-        Pipeline Runs Overview
+        Admin · Control Panel
       </h1>
+
       <p
         style={{
           fontSize: 13,
           color: '#6b7280',
           marginBottom: 18,
-          maxWidth: 760,
         }}
       >
-        Read-only view of recent Speechwriter runs: judge choices, guardrail behaviour, final
-        outputs, and human feedback. Use this to verify the ensemble is doing real work.
+        Signed in as <span style={{ fontWeight: 500 }}>{user.email}</span>. Admin-only tools to
+        inspect pipeline runs, system behaviour, and learned traits. This area is read-only and
+        observability-focused in the current version.
       </p>
-
-      {speechesError && (
-        <div
-          style={{
-            padding: 10,
-            borderRadius: 8,
-            background: '#fef2f2',
-            color: '#991b1b',
-            fontSize: 11,
-            marginBottom: 16,
-          }}
-        >
-          Error loading speeches: {speechesError.message}
-        </div>
-      )}
-
-      {!speechesError && (!speeches || speeches.length === 0) && (
-        <p
-          style={{
-            fontSize: 12,
-            color: '#6b7280',
-          }}
-        >
-          No runs yet. Generate a speech to see pipeline activity.
-        </p>
-      )}
 
       <div
         style={{
           display: 'flex',
-          flexDirection: 'column',
-          gap: 12,
+          flexWrap: 'wrap',
+          gap: 16,
         }}
       >
-        {speeches &&
-          speeches.map(run => {
-            const drafts: DraftsInfo = (run.drafts as any as DraftsInfo) || null;
-            const judge: JudgeInfo = (run.judge as any as JudgeInfo) || null;
-            const trace: TraceEntry[] = (run.trace as any as TraceEntry[]) || [];
+        {/* Pipeline Observer */}
+        <Link
+          href="/admin/observer"
+          style={{
+            flex: '1 1 260px',
+            padding: '14px 16px',
+            borderRadius: 10,
+            border: '1px solid #e5e7eb',
+            background: '#ffffff',
+            textDecoration: 'none',
+            color: '#111827',
+            fontSize: 13,
+            boxShadow: '0 1px 2px rgba(0,0,0,0.03)',
+          }}
+        >
+          <div
+            style={{
+              fontWeight: 600,
+              marginBottom: 4,
+            }}
+          >
+            🛰 Pipeline Observer
+          </div>
+          <div
+            style={{
+              color: '#6b7280',
+              fontSize: 12,
+            }}
+          >
+            Inspect individual runs: planner/drafter/judge/guardrail/editor traces, final outputs,
+            and persistence results.
+          </div>
+        </Link>
 
-            const feedback = feedbackBySpeech.get(run.id) || {
-              count: 0,
-              agreeCount: 0,
-            };
-            const agreementPct =
-              feedback.count > 0 ? Math.round((feedback.agreeCount / feedback.count) * 100) : null;
+        {/* Memory Inspector */}
+        <Link
+          href="/admin/memory"
+          style={{
+            flex: '1 1 260px',
+            padding: '14px 16px',
+            borderRadius: 10,
+            border: '1px solid #e5e7eb',
+            background: '#ffffff',
+            textDecoration: 'none',
+            color: '#111827',
+            fontSize: 13,
+            boxShadow: '0 1px 2px rgba(0,0,0,0.03)',
+          }}
+        >
+          <div
+            style={{
+              fontWeight: 600,
+              marginBottom: 4,
+            }}
+          >
+            🧠 Memory Inspector
+          </div>
+          <div
+            style={{
+              color: '#6b7280',
+              fontSize: 12,
+            }}
+          >
+            View inferred traits per identity (user or anon), runs count, and last update. Ensures
+            the profile/memory layer stays transparent and auditable.
+          </div>
+        </Link>
 
-            const judgeLabel =
-              drafts && drafts.winnerLabel
-                ? drafts.winnerLabel === 'draft1'
-                  ? 'Draft 1'
-                  : 'Draft 2'
-                : judge && judge.winner
-                  ? judge.winner === 1
-                    ? 'Draft 1'
-                    : 'Draft 2'
-                  : 'N/A';
-
-            const created = run.created_at ? new Date(run.created_at) : null;
-
-            const briefPreview = (run.brief as string)?.slice(0, 140) || '';
-            const finalPreview = (run.final_speech as string)?.slice(0, 260) || '';
-
-            const guardrailNote =
-              trace.find(t => t.stage === 'guardrail')?.message || 'Guardrail: n/a';
-
-            return (
-              <div
-                key={run.id}
-                style={{
-                  padding: 14,
-                  borderRadius: 12,
-                  border: '1px solid #e5e7eb',
-                  background: '#ffffff',
-                  display: 'grid',
-                  gridTemplateColumns: 'minmax(0, 1.6fr) minmax(0, 2fr)',
-                  gap: 14,
-                  alignItems: 'flex-start',
-                }}
-              >
-                <div>
-                  <p
-                    style={{
-                      fontSize: 10,
-                      color: '#9ca3af',
-                      margin: 0,
-                      marginBottom: 2,
-                    }}
-                  >
-                    {created ? created.toLocaleString() : 'Unknown time'}
-                  </p>
-                  <p
-                    style={{
-                      fontSize: 13,
-                      fontWeight: 600,
-                      margin: 0,
-                      marginBottom: 4,
-                    }}
-                  >
-                    {briefPreview || 'Untitled brief'}
-                  </p>
-                  <p
-                    style={{
-                      fontSize: 10,
-                      color: '#6b7280',
-                      margin: 0,
-                      marginBottom: 6,
-                    }}
-                  >
-                    Judge:{' '}
-                    <span
-                      style={{
-                        fontWeight: 600,
-                      }}
-                    >
-                      {judgeLabel}
-                    </span>
-                    {judge?.reason
-                      ? ` — ${judge.reason.slice(0, 140)}${judge.reason.length > 140 ? '...' : ''}`
-                      : ''}
-                    <br />
-                    {guardrailNote}
-                  </p>
-                  {feedback.count > 0 && (
-                    <p
-                      style={{
-                        fontSize: 9,
-                        color: '#4b5563',
-                        margin: 0,
-                        marginTop: 4,
-                      }}
-                    >
-                      Feedback: {feedback.count} vote
-                      {feedback.count > 1 ? 's' : ''},{' '}
-                      {agreementPct !== null ? `${agreementPct}% agreement` : ''}
-                    </p>
-                  )}
-                </div>
-
-                <div>
-                  <p
-                    style={{
-                      fontSize: 10,
-                      color: '#9ca3af',
-                      margin: 0,
-                      marginBottom: 2,
-                    }}
-                  >
-                    Final Speech (preview)
-                  </p>
-                  <p
-                    style={{
-                      fontSize: 11,
-                      color: '#111827',
-                      margin: 0,
-                      whiteSpace: 'pre-wrap',
-                    }}
-                  >
-                    {finalPreview || 'No final speech recorded.'}
-                    {finalPreview && (finalPreview.length >= 260 ? '...' : '')}
-                  </p>
-                </div>
-              </div>
-            );
-          })}
+        {/* Placeholder for future admin tools */}
+        <div
+          style={{
+            flex: '1 1 260px',
+            padding: '14px 16px',
+            borderRadius: 10,
+            border: '1px dashed #e5e7eb',
+            background: '#fafafa',
+            color: '#9ca3af',
+            fontSize: 12,
+          }}
+        >
+          <div
+            style={{
+              fontWeight: 600,
+              marginBottom: 4,
+            }}
+          >
+            🔧 Future Controls
+          </div>
+          <div>
+            Reserved for future features: prompt set management, guardrail tuning, feature flags,
+            and aggregate analytics.
+          </div>
+        </div>
       </div>
     </main>
   );

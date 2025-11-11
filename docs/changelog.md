@@ -1,180 +1,186 @@
-# Micro-Factory / Speechwriter — Changelog
+# 🧠 Speechwriter Micro-Factory – Specification (v1.7)
 
-## [v1.5.2] – 2025-11-10
+## Overview
 
-### Added
+Speechwriter is a structured AI writing pipeline that turns unstructured human briefs into high-quality written or spoken outputs. It uses modular reasoning stages — each handled by a specialised LLM prompt — with local persistence, lightweight memory, and transparent admin tooling.
 
-- **Preparser Engine**: auto-extracts key metadata (audience, tone, duration) from brief.
-- **Preset Catalog**: matches briefs to contextual templates (e.g. student personal statement, founder update).
-- **Implicit Profile System**: anonymous user tracking + session persistence via Supabase.
+Guiding principle:  
+**Always one-shot usable. Context only ever enhances.**  
+The system must deliver a great result from a single input, while improving as it learns.
 
-### Changed
+---
 
-- **PromptBar v1 (Rectangular Edition)**: redesigned input box (ChatGPT-style rectangle with rounded corners, black/grey contrast, bottom-right icons).
-- **runSpeechwriter.ts**: full persistence layer and error-safe guardrail integration.
+## 1. Core System Architecture
 
-### Fixed
+| Layer             | Purpose                                                           | Implementation                                                                                         |
+| ----------------- | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| UI Layer          | Conversational entry point and output display.                    | apps/web/app/dashboard/generate/page.tsx using modular PromptBar and OutputPanel.                      |
+| Pipeline Layer    | Multi-stage orchestration (planning, drafting, judging, editing). | apps/web/pipeline/\*.ts (Planner, Drafter, Judge, Guardrail, Editor, Preparser, Presets, InferTraits). |
+| Persistence Layer | Stores completed runs and user memory.                            | Supabase tables: speeches, speechwriter_memory.                                                        |
+| Admin Layer       | Observation, debugging, learning analytics.                       | /admin route includes Pipeline Observer + Memory Inspector.                                            |
+| Memory Layer      | Lightweight per-identity trait inference (tone, role, domain).    | Embedded via inferTraits + upsertMemoryTraits.                                                         |
 
-- Guardrail validation no longer blocks pipeline completion.
-- Supabase insert constraints resolved (added `brief` + `draft_1/2` schema sync).
+---
 
-### Notes
+## 2. High-Level Flow
 
-This update locks the **PromptBar v1 UI** as canonical for all Micro-Factory products.  
-Next phase (E.3) will focus on user profile learning and memory-based personalization.
+1. **User Input**
+   - User types into the conversational lozenge: “What do you want to create?”
+   - Optional hints (audience, tone, duration) may be extracted by the Preparser.
 
-## v1.5 – Guardrail Console & Feedback Integration (Phase D)
+2. **Pipeline Execution**
+   /api/speechwriter calls runSpeechwriterPipeline():
 
-**Date:** 2025-11-09
+   | Stage               | Function                                  | Output                                      | Trace Example                                          |
+   | ------------------- | ----------------------------------------- | ------------------------------------------- | ------------------------------------------------------ |
+   | Memory Load         | Load traits for user or anon ID.          | Prior tone / domain preferences.            | [memory] Loaded prior memory traits for this identity. |
+   | Preparser           | Extract structured config from raw brief. | goal, audience, tone, etc.                  | [preparser] parsed brief into structured config.       |
+   | Preset Match (Soft) | Heuristic match to common templates.      | Optional presetId.                          | [presets] matched: student_personal_statement.         |
+   | Planner             | Convert config to structured plan JSON.   | planJson (coreMessage, pillars, structure). | [planner] generated structured plan JSON.              |
+   | Drafter             | Produce two alternative drafts.           | draft_1, draft_2                            | [drafter] produced 2 drafts.                           |
+   | Judge               | Compare drafts and choose winner.         | winner, reason                              | [judge] selected draft 1 — …                           |
+   | Guardrail           | Validate and minimally edit winner.       | adjusted_draft, issues_summary              | [guardrail] applied minimal edits.                     |
+   | Editor              | Optimise final for spoken delivery.       | Final polished text.                        | [editor] final speech ready.                           |
+   | Persistence         | Save run to Supabase.                     | 1 row per run.                              | [persistence] Saved speech to history…                 |
+   | Memory Update       | Merge new traits to memory.               | Updated record.                             | [memory] Updated memory traits…                        |
 
-### Added
+3. **Output to User**
+   - Display Draft 1, Draft 2, and Final Speech (Edited).
+   - Pipeline trace viewable in Admin Observer.
 
-- Admin Observer Console: live trace viewer with judge, guardrail, and feedback metadata.
-- Global Guardrail Console: editable include/avoid lists stored in Supabase.
-- Dual-draft generation: both drafts returned for transparency.
-- User feedback logging: captures user vs judge agreement per run.
-- Admin feedback overview: displays run-level votes and agreement.
+---
 
-### Improved
+## 3. Data Model
 
-- Speech pipeline: now logs full ensemble reasoning and safety trace.
-- Persistence: unified run-ID for speeches, drafts, and feedback.
+### Table: speeches
 
-### Next
+| Column       | Type           | Notes                           |
+| ------------ | -------------- | ------------------------------- |
+| id           | UUID           | Primary key                     |
+| created_at   | Timestamp      | Default now()                   |
+| user_id      | UUID nullable  | Linked to logged-in user        |
+| anon_id      | UUID nullable  | Generated for anonymous visitor |
+| brief        | Text           | Raw user brief                  |
+| draft_1      | Text           | First draft                     |
+| draft_2      | Text           | Second draft                    |
+| final_speech | Text           | Editor-refined version          |
+| trace        | JSONB          | Stage-by-stage diagnostics      |
+| metadata     | JSONB nullable | Reserved for scores, votes      |
 
-- Phase E: UI/UX polish & prompt management.
+### Table: speechwriter_memory
 
-### v1.0 — 2025-11-08
+| Column            | Type      | Notes                        |
+| ----------------- | --------- | ---------------------------- |
+| id                | UUID      | Primary key                  |
+| user_id / anon_id | UUID      | Either user or anon identity |
+| traits            | JSONB     | Inferred attributes          |
+| runs_count        | Int       | Incremented per run          |
+| last_updated      | Timestamp | Auto-managed                 |
 
-**Overview**
+### Example traits object
 
-- First full specification of the Micro-Factory System documented (`/docs/spec.md`)
-- README replaced with founder-level summary and technical setup alignment
-- Base repository scaffolding confirmed (pnpm workspace, admin console pattern)
-- Documentation folder created (`/docs`)
-- Changelog tracking initiated
+    {
+      "roles": ["executive"],
+      "tonePreferences": ["warm", "clear"],
+      "lengthPreference": "medium",
+      "presetsUsed": ["exec_update"],
+      "domains": ["fintech"]
+    }
 
-**Current Phase**
+---
 
-- Phase A — _Foundational Scaffolding_  
-  Status: In progress  
-  Next: Verify dev environment runs cleanly and add minimal pipeline files
+## 4. Prompt Contracts
 
-### v1.1 — 2025-11-08
+All stage prompts follow strict JSON contracts:
 
-**Overview**
+| Stage     | Export                                     | Expected Output                           |
+| --------- | ------------------------------------------ | ----------------------------------------- |
+| Planner   | plannerPrompt                              | JSON with coreMessage, pillars, structure |
+| Drafter   | drafterPrompt                              | draft_1, draft_2                          |
+| Judge     | judgePrompt                                | winner, reason                            |
+| Guardrail | guardrailPrompt                            | adjusted_draft, issues_summary            |
+| Editor    | editorPrompt                               | Plain text                                |
+| Preparser | Function output goal, audience, tone, etc. |
 
-- Added `/speechwriter` MVP page using full Planner → Drafter → Judge → Guardrail → Editor pipeline
-- Added trace visibility for all pipeline stages
-- Introduced validation for brief length and clearer error handling
+If invalid JSON occurs, the stage logs [stage] failed: and continues gracefully.
 
-**Current Phase**
+---
 
-- Phase B — Functional MVP
-- Phase B.1 — Stabilisation complete
+## 5. Memory & Identity
 
-### v1.2 — 2025-11-09
+### Identity Handling
 
-- Updated spec.md to include Phase C₀ plan
-- Unified dashboard/generate route
-- Wired `/dashboard/generate` to the live Speechwriter pipeline (`/api/speechwriter`)
-- Added live stage indicator for Planner → Drafter → Judge → Guardrail → Editor during generation
-- Added optional debug trace toggle on the dashboard generate page
-- Kept `/speechwriter` as an internal/debug route using the same pipeline
+- Logged-in user: resolved via Supabase Auth user_id.
+- Anonymous user: assigned UUID anon_id (session cookie).
 
-**Current Phase**
+### Memory Lifecycle
 
-- Phase C₀ — Productise MVP: Complete
-- Next: Phase C — use structured inputs and clearer constraints to improve pipeline intelligence
+1. Load memory traits at start by user_id or anon_id.
+2. Merge inferred traits after run.
+3. Increment runs_count.
+4. Anonymous memory persists until session expires.
 
-### v1.3 — 2025-11-08
+### Trait Inference
 
-**Overview**
+Derived from structured plan and final speech:
 
-- Extended Speechwriter pipeline to accept structured config:
-  - audience, eventContext, tone, duration, keyPoints, redLines.
-- Updated `plannerPrompt`:
-  - Consumes both free-text brief and structured config.
-  - Emits a strict JSON plan including constraints (mustInclude / mustAvoid).
-- Updated `judgePrompt`:
-  - Scores drafts against the planner JSON and constraints.
-  - Returns explicit winner + reason (minified JSON).
-- Updated `runSpeechwriterPipeline`:
-  - Accepts `SpeechConfig`.
-  - Passes config into Planner and Judge.
-  - Preserves trace output and final speech.
-- Updated `/api/speechwriter`:
-  - Validates brief.
-  - Accepts structured fields, sanitises, passes as `SpeechConfig`.
-- Updated `/dashboard/generate`:
-  - Structured inputs surfaced in UI and wired to API.
-  - Live stage indicator and optional trace retained.
+- Role (CEO, student, founder)
+- Tone (warm, formal, inspiring)
+- Preferred length
+- Domains (education, business, science)
+- Preset usage
 
-**Status**
+---
 
-- Phase C₀ (Productise MVP): ✅
-- Phase C₁ (Structured Intelligence): ✅ first slice (plan/judge wired to structured inputs)
-- Next: C₂ — persistence & history (see roadmap in docs/spec.md).
+## 6. Admin Console
 
-### v1.4 — 2025-11-08
+### Views
 
-**Overview**
+| View                 | Purpose                                                                                 |
+| -------------------- | --------------------------------------------------------------------------------------- |
+| Pipeline Observer    | Inspect full trace and stage outputs (plan, drafts, judge, editor).                     |
+| Memory Inspector     | View inferred traits and run counts for each identity.                                  |
+| Aggregator Dashboard | Summarise preset usage, guardrail pass rate, and average judge–user agreement (future). |
 
-- Added persistent run history for Speechwriter.
-- Each successful pipeline run is now stored in `public.speeches` (scoped by `user_id`).
-- RLS policies ensure users can only access their own speeches.
-- `/api/speechwriter`:
-  - On success, attempts to insert a row into `speeches`.
-  - Appends a `persistence` entry into the trace indicating save/skip/failure.
-- New UI:
-  - `/dashboard/history` lists recent speeches with brief + snippet.
-  - `/dashboard/history/[id]` shows full brief, structured fields, and final speech.
-- Behaviour:
-  - History only for authenticated users.
-  - If persistence fails, the user still gets their speech (failure is logged only in trace).
+---
 
-**Status**
+## 7. Phase Roadmap
 
-- Phase C₂ (Run History & Persistence): ✅
+| Phase | Description                                              | Status      |
+| ----- | -------------------------------------------------------- | ----------- |
+| A     | Environment setup, Supabase link, initial pipeline.      | ✅ Complete |
+| B     | Persistence, Admin Console, Stable architecture.         | ✅ Complete |
+| C     | Guardrail + Observer integration, error recovery.        | ✅ Complete |
+| D     | Feedback loop (judge vs user), dual-draft UI, logging.   | ✅ Complete |
+| E1    | Conversational interface with ChatGPT-style lozenge UI.  | ✅ Complete |
+| E2    | Profile engine, presets, pre-parser, memory integration. | ✅ Complete |
+| E3    | Deployment (Supabase-hosted + Vercel preview).           | 🔜 Next     |
+| F     | UX polish, theme switcher, and observability metrics.    | Planned     |
 
-### v1.5 — 2025-11-08
+---
 
-**Overview**
+## 8. Pending To-Do Items
 
-- Implemented Guardrail v1 in the Speechwriter pipeline.
-- Guardrail now runs after Judge and before Editor.
-- Guardrail behaviour:
-  - Reads the winning draft plus planner constraints:
-    - `constraints.mustInclude`
-    - `constraints.mustAvoid`
-  - Applies minimal, conservative checks:
-    - Avoids violating explicit must-avoid instructions.
-    - Encourages inclusion of must-include themes where safe.
-    - Softens clearly unprofessional or absurd language.
-  - Returns structured JSON:
-    - `status`: `"ok" | "edited" | "flagged"`
-    - `safeText`: the version passed forward
-    - `issues[]`: short notes on what was changed or flagged
-- Orchestrator updates:
-  - Uses `safeText` from Guardrail when available.
-  - Always logs a `guardrail` stage entry in the trace:
-    - “OK — no material issues”
-    - “applied minimal edits…”
-    - or “flagged concerns…”
-  - Never blocks delivery of a final speech; worst case falls back to the judged draft.
-- This makes Guardrail:
-  - Inspectable,
-  - Non-silent,
-  - Non-destructive to UX,
-  - Ready for future tightening.
+- UI polish and final theming (lozenge + icons final lock).
+- Add aggregate metrics for user vs judge agreement.
+- Add profile/preset analytics in admin dashboard.
+- Refactor generate/page.tsx and runSpeechwriter.ts into modular subcomponents.
+- Implement final deployment pipeline (Vercel + Supabase).
+- Add performance monitoring (latency per stage).
+- Add data export (PDF/JSON) for saved speeches.
 
-## v1.5 – Admin Observer Console + Pipeline Stability
+---
 
-**Date:** 2025-11-08
+## 9. Design Principle Summary
 
-- Implemented end-to-end pipeline with full Supabase persistence
-- Added Admin / Observer console with draft comparison
-- Guardrail v1 operational across test runs
-- Simplified import structure to `apps/web/pipeline`
-- Verified persistence and debugging through `/admin`
-- CI temporarily disabled pending tests
+- Always one-shot usable — no mandatory onboarding.
+- Context only enhances results — no dependence on form filling.
+- Transparency by design — all internal reasoning logged.
+- Modularity and replaceability — prompts and models can evolve.
+- Profiles remain implicit, adaptive, and privacy-preserving.
+- Data is only persisted with explicit or anonymous consent.
+- Each stage is observable, testable, and recoverable.
+
+---
+
+_End of file_
