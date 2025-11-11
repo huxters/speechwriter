@@ -150,7 +150,10 @@ end$$;
 - Add read-only memory view in Admin Console.
 - Later (Phase E.4): aggregate metrics showing improvement in inferred tone/role accuracy.
 
----
+### Productisation & Access Control
+
+**Status:** ✅ Landing + Login Flow Complete  
+**Next:** E4 Admin Intelligence Console & Voice / PDF Extensions---
 
 ## 🧭 Future Outlook (Beyond E.3)
 

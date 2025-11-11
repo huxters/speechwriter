@@ -1,10 +1,9 @@
 // apps/web/app/page.tsx
-// Root redirect for Speechwriter app: always send "/" → "/login"
 
-import { redirect } from 'next/navigation';
+import GeneratePage from './dashboard/generate/page';
 
-export default function Home(): never {
-  redirect('/login');
-  // redirect() never returns; this satisfies TypeScript
-  throw new Error('Redirecting...');
+export default function HomePage() {
+  // Root route uses the same experience as the Generate screen.
+  // This keeps behaviour identical while making `/` the primary entrypoint.
+  return <GeneratePage />;
 }

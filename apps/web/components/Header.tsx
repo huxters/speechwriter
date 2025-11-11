@@ -1,205 +1,165 @@
-'use client';
+// apps/web/components/Header.tsx
 
-import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { createClient } from '@/lib/supabase/client';
-import { isAdminEmail } from '@/lib/auth/isAdmin';
+import { cookies } from 'next/headers';
+import { redirect } from 'next/navigation';
+import { createClient } from '@/lib/supabase/server';
 
-type User = {
-  email: string | null;
-};
+// Configure which emails count as admins.
+const adminEmails =
+  (process.env.NEXT_PUBLIC_ADMIN_EMAILS || '')
+    .split(',')
+    .map(e => e.trim().toLowerCase())
+    .filter(Boolean) || [];
 
-export default function Header(): JSX.Element {
-  const [user, setUser] = useState<User | null>(null);
-  const [isAdminUser, setIsAdminUser] = useState(false);
-  const [ready, setReady] = useState(false);
+// Server action: sign out and send user back to "/"
+export async function logout() {
+  'use server';
+  const cookieStore = cookies();
+  const supabase = await createClient(cookieStore);
 
-  useEffect(() => {
-    const supabase = createClient();
+  await supabase.auth.signOut();
+  redirect('/');
+}
 
-    // Initial load
-    supabase.auth.getUser().then(({ data, error }) => {
-      if (error) {
-        console.error('Error loading user in Header:', error.message);
-        setUser(null);
-        setIsAdminUser(false);
-        setReady(true);
-        return;
-      }
+export default async function Header() {
+  const cookieStore = cookies();
+  const supabase = await createClient(cookieStore);
 
-      const email = data.user?.email ?? null;
-      setUser({ email });
-      setIsAdminUser(!!email && isAdminEmail(email));
-      setReady(true);
-    });
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
 
-    // Keep in sync with auth state
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      const email = session?.user?.email ?? null;
-      setUser(email ? { email } : null);
-      setIsAdminUser(!!email && isAdminEmail(email));
-    });
-
-    return () => {
-      subscription.unsubscribe();
-    };
-  }, []);
-
-  const handleLogout = async () => {
-    const supabase = createClient();
-    await supabase.auth.signOut();
-    window.location.href = '/login';
-  };
-
-  // Inline styles (stable, self-contained)
-  const headerStyle: React.CSSProperties = {
-    position: 'fixed',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 56,
-    padding: '0 32px',
-    background: 'linear-gradient(90deg, #111827, #111827 30%, #4f46e5 75%, #7c3aed 100%)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    color: '#ffffff',
-    boxShadow: '0 4px 16px rgba(15,23,42,0.35)',
-    zIndex: 50,
-  };
-
-  const brandStyle: React.CSSProperties = {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 8,
-    textDecoration: 'none',
-    color: 'inherit',
-  };
-
-  const brandDotStyle: React.CSSProperties = {
-    width: 16,
-    height: 16,
-    borderRadius: '999px',
-    background: 'radial-gradient(circle at 30% 0, #22c55e, #4f46e5 55%, #7c3aed 100%)',
-    boxShadow: '0 0 10px rgba(129,140,248,0.9)',
-  };
-
-  const brandTitleStyle: React.CSSProperties = {
-    fontSize: 16,
-    fontWeight: 600,
-    lineHeight: 1.1,
-  };
-
-  const brandSubStyle: React.CSSProperties = {
-    fontSize: 10,
-    opacity: 0.72,
-  };
-
-  const navStyle: React.CSSProperties = {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 18,
-    fontSize: 13,
-  };
-
-  const navLinkStyle: React.CSSProperties = {
-    textDecoration: 'none',
-    color: '#e5e7eb',
-    padding: '6px 10px',
-    borderRadius: 999,
-    transition: 'all 0.18s ease',
-  };
-
-  const navLinkActiveStyle: React.CSSProperties = {
-    ...navLinkStyle,
-    background: 'rgba(15,23,42,0.95)',
-    color: '#e5e7eb',
-    boxShadow: '0 6px 16px rgba(15,23,42,0.65)',
-  };
-
-  const adminLinkStyle: React.CSSProperties = {
-    ...navLinkActiveStyle,
-    background: 'radial-gradient(circle at 0 0, rgba(129,140,248,0.9), #4f46e5)',
-  };
-
-  const rightStyle: React.CSSProperties = {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 10,
-    fontSize: 11,
-  };
-
-  const emailStyle: React.CSSProperties = {
-    padding: '4px 10px',
-    borderRadius: 999,
-    background: 'rgba(15,23,42,0.92)',
-    color: '#e5e7eb',
-    maxWidth: 220,
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    whiteSpace: 'nowrap',
-  };
-
-  const logoutStyle: React.CSSProperties = {
-    padding: '5px 12px',
-    borderRadius: 999,
-    border: '1px solid rgba(249,250,251,0.4)',
-    background: 'transparent',
-    color: '#e5e7eb',
-    fontSize: 11,
-    cursor: 'pointer',
-    transition: 'all 0.18s ease',
-  };
+  const email = session?.user?.email?.toLowerCase() || null;
+  const isLoggedIn = !!session;
+  const isAdmin = !!(email && adminEmails.includes(email));
 
   return (
-    <>
-      <header style={headerStyle}>
-        {/* Brand */}
-        <Link href="/" style={brandStyle}>
-          <span style={brandDotStyle} />
-          <div>
-            <div style={brandTitleStyle}>Speechwriter</div>
-            <div style={brandSubStyle}>by Halo MicroFactory</div>
-          </div>
+    <header
+      style={{
+        width: '100%',
+        position: 'sticky',
+        top: 0,
+        zIndex: 40,
+        background: 'linear-gradient(90deg, #020817 0%, #111827 40%, #4f46e5 100%)',
+        color: '#ffffff',
+        boxShadow: '0 10px 30px rgba(15,23,42,0.25)',
+      }}
+    >
+      <div
+        style={{
+          maxWidth: 1120,
+          margin: '0 auto',
+          padding: '0.6rem 1.75rem',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '1.5rem',
+        }}
+      >
+        {/* Left: brand */}
+        <Link
+          href="/"
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            lineHeight: 1.15,
+            textDecoration: 'none',
+            color: 'inherit',
+          }}
+        >
+          <span style={{ fontSize: 16, fontWeight: 600 }}>Speechwriter</span>
+          <span
+            style={{
+              fontSize: 10,
+              opacity: 0.75,
+              letterSpacing: 0.3,
+            }}
+          >
+            by Halo MicroFactory
+          </span>
         </Link>
 
-        {/* Nav (only when logged in & ready) */}
-        <nav style={navStyle}>
-          {ready && user && (
+        {/* Right: navigation */}
+        <nav
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 14,
+            fontSize: 12,
+          }}
+        >
+          {!isLoggedIn && (
+            // Public / anonymous: just a subtle Login button
+            <Link
+              href="/login"
+              style={{
+                padding: '6px 14px',
+                borderRadius: 999,
+                border: '1px solid rgba(209,213,219,0.7)',
+                color: '#e5e7eb',
+                textDecoration: 'none',
+              }}
+            >
+              Login
+            </Link>
+          )}
+
+          {isLoggedIn && (
             <>
-              <Link href="/dashboard" style={navLinkActiveStyle}>
-                Dashboard
+              <Link
+                href="/"
+                style={{
+                  textDecoration: 'none',
+                  color: '#e5e7eb',
+                }}
+              >
+                New
               </Link>
-              <Link href="/dashboard/generate" style={navLinkStyle}>
-                New Speech
-              </Link>
-              <Link href="/dashboard/history" style={navLinkStyle}>
+
+              <Link
+                href="/history"
+                style={{
+                  textDecoration: 'none',
+                  color: '#e5e7eb',
+                }}
+              >
                 History
               </Link>
-              {isAdminUser && (
-                <Link href="/admin" style={adminLinkStyle}>
+
+              {isAdmin && (
+                <Link
+                  href="/admin"
+                  style={{
+                    textDecoration: 'none',
+                    color: '#e5e7eb',
+                  }}
+                >
                   Admin
                 </Link>
               )}
+
+              <form action={logout}>
+                <button
+                  type="submit"
+                  style={{
+                    padding: '6px 14px',
+                    borderRadius: 999,
+                    border: 'none',
+                    cursor: 'pointer',
+                    fontSize: 11,
+                    fontWeight: 500,
+                    backgroundColor: '#111827',
+                    color: '#f9fafb',
+                  }}
+                >
+                  Logout
+                </button>
+              </form>
             </>
           )}
         </nav>
-
-        {/* User / Logout (only when logged in) */}
-        <div style={rightStyle}>
-          {ready && user && user.email && <span style={emailStyle}>{user.email}</span>}
-          {ready && user && (
-            <button style={logoutStyle} onClick={handleLogout}>
-              Logout
-            </button>
-          )}
-        </div>
-      </header>
-
-      {/* Spacer so content isn't hidden under fixed header */}
-      <div style={{ height: 56 }} />
-    </>
+      </div>
+    </header>
   );
 }

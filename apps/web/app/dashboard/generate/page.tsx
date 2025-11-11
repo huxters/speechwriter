@@ -1,13 +1,27 @@
 'use client';
 
 import React, { useState } from 'react';
-import PromptBar from '@/components/PromptBar';
-import OutputPanel, {
-  Drafts,
-  JudgeInfo,
-  GuardrailInfo,
-  TraceEntry,
-} from '@/components/OutputPanel';
+
+type TraceEntry = {
+  stage: string;
+  message: string;
+};
+
+type Drafts = {
+  draft1: string;
+  draft2: string;
+  winnerLabel: 'draft1' | 'draft2';
+};
+
+type JudgeInfo = {
+  winner: 1 | 2;
+  reason: string;
+};
+
+type GuardrailInfo = {
+  ok: boolean;
+  message: string;
+};
 
 type PipelineResult = {
   finalSpeech: string | null;
@@ -17,11 +31,8 @@ type PipelineResult = {
   trace: TraceEntry[];
 };
 
-export default function DashboardGeneratePage() {
-  // Core conversational brief
+export default function DashboardGeneratePage(): JSX.Element {
   const [rawBrief, setRawBrief] = useState('');
-
-  // Optional structured constraints
   const [audience, setAudience] = useState('');
   const [eventContext, setEventContext] = useState('');
   const [tone, setTone] = useState('');
@@ -29,30 +40,28 @@ export default function DashboardGeneratePage() {
   const [mustInclude, setMustInclude] = useState('');
   const [mustAvoid, setMustAvoid] = useState('');
 
-  // Pipeline response state
   const [loading, setLoading] = useState(false);
-  const [finalSpeech, setFinalSpeech] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [trace, setTrace] = useState<TraceEntry[]>([]);
   const [drafts, setDrafts] = useState<Drafts | null>(null);
+  const [finalSpeech, setFinalSpeech] = useState<string | null>(null);
   const [judge, setJudge] = useState<JudgeInfo | null>(null);
   const [guardrail, setGuardrail] = useState<GuardrailInfo | null>(null);
-  const [trace, setTrace] = useState<TraceEntry[]>([]);
-  const [error, setError] = useState<string | null>(null);
-
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   async function runPipeline() {
     if (!rawBrief.trim()) {
-      setError('Please describe what you want to create.');
+      setError('Please tell us what you want to create.');
       return;
     }
 
     setLoading(true);
     setError(null);
-    setFinalSpeech(null);
+    setTrace([]);
     setDrafts(null);
+    setFinalSpeech(null);
     setJudge(null);
     setGuardrail(null);
-    setTrace([]);
 
     try {
       const res = await fetch('/api/speechwriter', {
@@ -76,193 +85,385 @@ export default function DashboardGeneratePage() {
 
       const data: PipelineResult = await res.json();
 
-      setFinalSpeech(data.finalSpeech || null);
+      setTrace(data.trace || []);
       setDrafts(data.drafts || null);
+      setFinalSpeech(data.finalSpeech || null);
       setJudge(data.judge || null);
       setGuardrail(data.guardrail || null);
-      setTrace(data.trace || []);
 
       if (!data.finalSpeech) {
         setError('Pipeline completed without a final draft. Please try again.');
       }
     } catch (err: any) {
-      console.error('Error calling /api/speechwriter', err);
-      setError(err?.message || 'Internal error running Speechwriter pipeline.');
+      console.error('Error running pipeline', err);
+      setError('Internal error running Speechwriter pipeline.');
     } finally {
       setLoading(false);
     }
   }
 
-  function handleSelectDraft(which: 'draft1' | 'draft2') {
-    if (!drafts) return;
-    const chosen = which === 'draft1' ? drafts.draft1 || '' : drafts.draft2 || '';
-    if (!chosen.trim()) return;
-
-    setFinalSpeech(chosen);
-
-    // Simple instrumentation stub (to be wired to backend later)
-    console.log('Judge vs User choice feedback', {
-      judgeWinner: drafts.winnerLabel,
-      userChoice: which,
-      agreement: drafts.winnerLabel === which,
-    });
+  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      if (!loading) runPipeline();
+    }
   }
 
+  // --- styles ---
+
+  const pageStyle: React.CSSProperties = {
+    minHeight: 'calc(100vh - 56px)',
+    padding: '40px 24px 48px',
+    boxSizing: 'border-box',
+    fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, sans-serif',
+    backgroundColor: '#f5f5f7',
+    color: '#111827',
+    display: 'flex',
+    justifyContent: 'center',
+  };
+
+  const contentStyle: React.CSSProperties = {
+    width: '100%',
+    maxWidth: 1040,
+  };
+
+  const titleStyle: React.CSSProperties = {
+    fontSize: 24,
+    fontWeight: 600,
+    marginBottom: 6,
+  };
+
+  const subtitleStyle: React.CSSProperties = {
+    fontSize: 13,
+    color: '#6b7280',
+    marginBottom: 18,
+  };
+
+  const lozengeWrapper: React.CSSProperties = {
+    display: 'flex',
+    alignItems: 'stretch',
+    gap: 12,
+  };
+
+  const lozengeStyle: React.CSSProperties = {
+    flex: 1,
+    backgroundColor: '#f9fafb',
+    borderRadius: 18,
+    border: '1px solid #e5e7eb',
+    boxShadow: '0 4px 14px rgba(15,23,42,0.08)',
+    padding: '14px 16px 10px',
+    boxSizing: 'border-box',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 8,
+  };
+
+  const textareaStyle: React.CSSProperties = {
+    width: '100%',
+    minHeight: 64,
+    resize: 'none',
+    border: 'none',
+    outline: 'none',
+    background: 'transparent',
+    fontSize: 14,
+    lineHeight: 1.5,
+    color: '#111827',
+  };
+
+  const helperTextStyle: React.CSSProperties = {
+    fontSize: 11,
+    color: '#9ca3af',
+  };
+
+  const bottomRowStyle: React.CSSProperties = {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 2,
+  };
+
+  const iconRowStyle: React.CSSProperties = {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+  };
+
+  const roundIconButton: React.CSSProperties = {
+    width: 26,
+    height: 26,
+    borderRadius: '999px',
+    border: '1px solid #d1d5db',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: 14,
+    color: '#4b5563',
+    cursor: 'default',
+    backgroundColor: '#ffffff',
+  };
+
+  const primaryIconButton: React.CSSProperties = {
+    ...roundIconButton,
+    backgroundColor: '#111827',
+    color: '#ffffff',
+    borderColor: '#111827',
+  };
+
+  const generateButtonStyle: React.CSSProperties = {
+    alignSelf: 'center',
+    padding: '10px 22px',
+    borderRadius: 999,
+    border: 'none',
+    backgroundColor: '#111827',
+    color: '#ffffff',
+    fontSize: 13,
+    fontWeight: 500,
+    cursor: loading ? 'default' : 'pointer',
+    opacity: loading ? 0.7 : 1,
+  };
+
+  const advancedLinkStyle: React.CSSProperties = {
+    marginTop: 10,
+    fontSize: 10,
+    color: '#6b7280',
+    cursor: 'pointer',
+    display: 'inline-block',
+  };
+
+  const advancedGrid: React.CSSProperties = {
+    marginTop: 8,
+    display: 'grid',
+    gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+    gap: 8,
+    fontSize: 11,
+  };
+
+  const advInputStyle: React.CSSProperties = {
+    width: '100%',
+    padding: '6px 8px',
+    borderRadius: 8,
+    border: '1px solid #e5e7eb',
+    fontSize: 11,
+    boxSizing: 'border-box',
+  };
+
+  const errorStyle: React.CSSProperties = {
+    marginTop: 14,
+    padding: '10px 12px',
+    backgroundColor: '#fee2e2',
+    color: '#991b1b',
+    borderRadius: 10,
+    fontSize: 11,
+  };
+
+  const traceBoxStyle: React.CSSProperties = {
+    marginTop: 18,
+    padding: '12px 14px',
+    backgroundColor: '#ffffff',
+    borderRadius: 12,
+    border: '1px solid #e5e7eb',
+    fontSize: 11,
+    color: '#374151',
+  };
+
+  const draftsWrapperStyle: React.CSSProperties = {
+    marginTop: 18,
+    display: 'grid',
+    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+    gap: 14,
+  };
+
+  const draftCardStyle: React.CSSProperties = {
+    padding: '12px 14px',
+    backgroundColor: '#ffffff',
+    borderRadius: 12,
+    border: '1px solid #e5e7eb',
+    fontSize: 12,
+    lineHeight: 1.5,
+    whiteSpace: 'pre-wrap',
+  };
+
+  const finalCardStyle: React.CSSProperties = {
+    marginTop: 16,
+    padding: '14px 16px',
+    backgroundColor: '#ffffff',
+    borderRadius: 14,
+    border: '1px solid #e5e7eb',
+    fontSize: 13,
+    lineHeight: 1.6,
+    whiteSpace: 'pre-wrap',
+  };
+
+  // --- render ---
+
   return (
-    <main
-      style={{
-        maxWidth: 1200,
-        margin: '0 auto',
-        padding: '32px 24px 48px',
-        fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, sans-serif',
-      }}
-    >
-      {/* Heading */}
-      <header style={{ marginBottom: 24 }}>
-        <h1
-          style={{
-            fontSize: 28,
-            fontWeight: 600,
-            marginBottom: 8,
-          }}
-        >
-          New Speech
-        </h1>
-        <p
-          style={{
-            fontSize: 14,
-            color: '#555',
-            maxWidth: 720,
-            lineHeight: 1.5,
-          }}
-        >
-          Describe what you want to create in one natural message. We&apos;ll plan, draft, judge,
+    <main style={pageStyle}>
+      <div style={contentStyle}>
+        <h1 style={titleStyle}>New Speech</h1>
+        <p style={subtitleStyle}>
+          Describe what you want to create in one natural message. We’ll plan, draft, judge,
           guardrail, and edit — then show you the recommended version and how we got there.
         </p>
-      </header>
 
-      {/* Prompt bar (stable, shared component) */}
-      <PromptBar value={rawBrief} onChange={setRawBrief} onSubmit={runPipeline} loading={loading} />
+        {/* Lozenge + Generate */}
+        <div style={lozengeWrapper}>
+          <div style={lozengeStyle}>
+            <textarea
+              style={textareaStyle}
+              placeholder={'What do you want to create?\nWho is it for, and what must it achieve?'}
+              value={rawBrief}
+              onChange={e => setRawBrief(e.target.value)}
+              onKeyDown={handleKeyDown}
+            />
 
-      {/* Hint below input */}
-      <div
-        style={{
-          fontSize: 11,
-          color: '#777',
-          marginBottom: 16,
-          marginLeft: 8,
-        }}
-      >
-        Press Enter for a quick run. Upload, voice, and live conversation will be enabled in later
-        versions.
-      </div>
+            <div style={bottomRowStyle}>
+              <div style={helperTextStyle}>
+                Press Enter for a quick run. Upload, voice, and live conversation will be enabled in
+                later versions.
+              </div>
+              <div style={iconRowStyle}>
+                {/* plus icon */}
+                <div style={roundIconButton}>+</div>
+                {/* mic icon */}
+                <div style={roundIconButton}>
+                  <span
+                    style={{
+                      width: 10,
+                      height: 14,
+                      borderRadius: 6,
+                      border: '2px solid #4b5563',
+                      borderTop: 'none',
+                    }}
+                  />
+                </div>
+                {/* "voice" pill */}
+                <div style={primaryIconButton}>
+                  <span
+                    style={{
+                      display: 'flex',
+                      gap: 2,
+                      alignItems: 'center',
+                    }}
+                  >
+                    <span
+                      style={{
+                        width: 2,
+                        height: 8,
+                        backgroundColor: '#ffffff',
+                        borderRadius: 2,
+                      }}
+                    />
+                    <span
+                      style={{
+                        width: 2,
+                        height: 12,
+                        backgroundColor: '#ffffff',
+                        borderRadius: 2,
+                      }}
+                    />
+                    <span
+                      style={{
+                        width: 2,
+                        height: 8,
+                        backgroundColor: '#ffffff',
+                        borderRadius: 2,
+                      }}
+                    />
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
 
-      {/* Advanced fields */}
-      <div style={{ marginBottom: 24 }}>
-        <button
-          type="button"
-          onClick={() => setShowAdvanced(v => !v)}
-          style={{
-            padding: '4px 10px',
-            fontSize: 11,
-            borderRadius: 999,
-            border: '1px solid #e0e0e0',
-            background: '#fafafa',
-            cursor: 'pointer',
-            color: '#666',
-          }}
-        >
+          <button style={generateButtonStyle} onClick={runPipeline} disabled={loading}>
+            {loading ? 'Working…' : 'Generate'}
+          </button>
+        </div>
+
+        <div style={advancedLinkStyle} onClick={() => setShowAdvanced(v => !v)}>
           {showAdvanced ? 'Hide advanced fields' : 'Show advanced fields (optional constraints)'}
-        </button>
+        </div>
 
         {showAdvanced && (
-          <div
-            style={{
-              marginTop: 12,
-              display: 'grid',
-              gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
-              gap: 12,
-              alignItems: 'flex-start',
-              maxWidth: 960,
-            }}
-          >
+          <div style={advancedGrid}>
             <input
+              style={advInputStyle}
+              placeholder="Audience"
               value={audience}
               onChange={e => setAudience(e.target.value)}
-              placeholder="Audience (optional)"
-              style={advancedInputStyle}
             />
             <input
+              style={advInputStyle}
+              placeholder="Event / context"
               value={eventContext}
               onChange={e => setEventContext(e.target.value)}
-              placeholder="Event / context (optional)"
-              style={advancedInputStyle}
             />
             <input
+              style={advInputStyle}
+              placeholder="Tone / style"
               value={tone}
               onChange={e => setTone(e.target.value)}
-              placeholder="Tone / style (optional)"
-              style={advancedInputStyle}
             />
             <input
+              style={advInputStyle}
+              placeholder="Target length (e.g. 5 mins, 600 words)"
               value={duration}
               onChange={e => setDuration(e.target.value)}
-              placeholder="Target length (e.g. 5 minutes)"
-              style={advancedInputStyle}
             />
-            <textarea
+            <input
+              style={advInputStyle}
+              placeholder="Must-include points"
               value={mustInclude}
               onChange={e => setMustInclude(e.target.value)}
-              placeholder="Must-include points"
-              rows={2}
-              style={{ ...advancedInputStyle, borderRadius: 8 }}
             />
-            <textarea
+            <input
+              style={advInputStyle}
+              placeholder="Red lines / must-avoid"
               value={mustAvoid}
               onChange={e => setMustAvoid(e.target.value)}
-              placeholder="Red lines / must-avoid"
-              rows={2}
-              style={{ ...advancedInputStyle, borderRadius: 8 }}
             />
           </div>
         )}
+
+        {error && <div style={errorStyle}>{error}</div>}
+
+        {trace.length > 0 && (
+          <div style={traceBoxStyle}>
+            <strong>Pipeline Trace (internal)</strong>
+            <ul style={{ paddingLeft: 18, margin: '6px 0 0', listStyle: 'disc' }}>
+              {trace.map((t, i) => (
+                <li key={i}>
+                  <strong>[{t.stage}]</strong> {t.message}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {drafts && (
+          <div style={draftsWrapperStyle}>
+            <div style={draftCardStyle}>
+              <div style={{ fontWeight: 600, marginBottom: 4 }}>
+                Draft 1{drafts.winnerLabel === 'draft1' ? ' (judge pick)' : ''}
+              </div>
+              {drafts.draft1 || '—'}
+            </div>
+            <div style={draftCardStyle}>
+              <div style={{ fontWeight: 600, marginBottom: 4 }}>
+                Draft 2{drafts.winnerLabel === 'draft2' ? ' (judge pick)' : ''}
+              </div>
+              {drafts.draft2 || '—'}
+            </div>
+          </div>
+        )}
+
+        {finalSpeech && (
+          <div style={finalCardStyle}>
+            <div style={{ fontWeight: 600, marginBottom: 6 }}>Final Speech (edited)</div>
+            {finalSpeech}
+          </div>
+        )}
       </div>
-
-      {/* Error */}
-      {error && (
-        <div
-          style={{
-            marginBottom: 16,
-            padding: '10px 12px',
-            borderRadius: 8,
-            backgroundColor: '#ffecec',
-            color: '#a00',
-            fontSize: 13,
-            maxWidth: 960,
-          }}
-        >
-          {error}
-        </div>
-      )}
-
-      {/* Output: final + drafts + trace */}
-      <OutputPanel
-        finalSpeech={finalSpeech}
-        drafts={drafts}
-        judge={judge}
-        guardrail={guardrail}
-        trace={trace}
-        onSelectDraft={handleSelectDraft}
-      />
     </main>
   );
 }
-
-const advancedInputStyle: React.CSSProperties = {
-  width: '100%',
-  padding: '8px 10px',
-  borderRadius: 6,
-  border: '1px solid #e0e0e0',
-  fontSize: 12,
-  outline: 'none',
-};

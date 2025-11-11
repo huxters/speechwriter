@@ -1,22 +1,14 @@
 /** @type {import('next').NextConfig} */
 
 // -----------------------------------------------------------------------------
-// Speechwriter – Root Redirect Configuration
-// -----------------------------------------------------------------------------
-// This ensures that anyone visiting "/" is automatically sent to "/login".
-// You can later change "/login" to "/dashboard" if you prefer.
+// Speechwriter – Next.js config
+// Root ("/") serves the public generate experience via app/page.tsx.
+// No forced redirect to /login or /dashboard.
+// Authentication gating is handled per-route (e.g. /dashboard, /admin).
 // -----------------------------------------------------------------------------
 
 const nextConfig = {
-  async redirects() {
-    return [
-      {
-        source: '/',
-        destination: '/login',
-        permanent: false,
-      },
-    ];
-  },
+  reactStrictMode: true,
 };
 
 module.exports = nextConfig;

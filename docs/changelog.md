@@ -183,4 +183,25 @@ Derived from structured plan and final speech:
 
 ---
 
-_End of file_
+## [v0.9.4] - 2025-11-11
+
+### Added
+
+- Public landing page (`/`) now uses the **Generate** screen for first-run experience.
+- **Magic link login** flow implemented with Supabase → `/auth/callback`.
+- **Role-based header**:
+  - Logged-out users see only `Login`.
+  - Logged-in users see `New`, `History`, `Admin`, and `Logout` (if admin).
+- **Logout** now correctly ends session and redirects to the public landing page.
+
+### Fixed
+
+- Root redirect loop between `/` and `/dashboard` resolved.
+- Header rendering corrected for unauthenticated users.
+- Supabase callback now properly sets session before redirect.
+
+### Notes
+
+- This version marks a clean, stable milestone before adding voice input, text-to-speech, and PDF export.
+- Codebase verified: Login, logout, and generate flows working as intended.
+  _End of file_
