@@ -1,169 +1,283 @@
-# 🧠 Speechwriter Project Specification
+# Speechwriter – Product Specification (MVP + Refinement v1)
 
-**Version:** v1.5.3 (Phase E.3 – Profile Memory & Context Learning)  
-**Date:** November 2025
+_Last updated: 2025-11-13_
 
----
+## 0. Purpose & Positioning
 
-## 🔍 Project Overview
+Speechwriter is a **professional speechwriting environment** built on top of LLMs.
 
-Speechwriter is the reference implementation for the **Micro-Factory system**, designed to demonstrate how a modular LLM pipeline can generate, judge, and refine high-quality documents — from speeches to personal statements to board briefings — with privacy, explainability, and structured intelligence.
+It is **not** “ChatGPT with a nicer skin”. It is a structured system that:
 
-It is the first production-grade product under the Micro-Factory umbrella: **a conversational, profile-aware writing assistant** that turns abstract briefs into polished, live-delivery-ready text.
+- Generates high-quality first drafts via a **multi-stage pipeline**
+- Provides a controlled, **iterative refinement loop**
+- Maintains **stability** and **locality of edits** (“change X, keep everything else the same”)
+- Builds towards a **communication intelligence platform** (memory, profiling, multimodal, etc.)
 
-> **Guiding Principle:**  
-> _Always one-shot usable. Context only ever enhances._
+Core positioning:
 
----
-
-## 🧩 Architecture Summary
-
-| Layer                  | Role                                                                                  |
-| ---------------------- | ------------------------------------------------------------------------------------- |
-| **Frontend (Next 14)** | Conversational interface, admin observer, history, prompt management                  |
-| **API Routes**         | Orchestrate the Planner → Drafter → Judge → Guardrail → Editor → Persistence pipeline |
-| **Pipeline Directory** | Holds all structured prompt logic (TypeScript + system prompts)                       |
-| **Supabase**           | Authentication, persistence (speeches, history, profiles, memory)                     |
-| **Docs Folder**        | `specs.md` and `changelog.md` — versioned documentation                               |
+> **“The human soul makes the choice; the machine mind makes the thinking sharper.”**  
+> **“We productise wisdom for high-stakes spoken communication.”**
 
 ---
 
-## 📁 Repository Layout (Simplified)
+## 1. Core User Story (MVP)
 
-apps/  
- web/  
- app/  
- login/  
- dashboard/  
- generate/  
- history/  
- admin/  
- pipeline/  
- preparseBrief.ts  
- planner.prompt.ts  
- drafter.prompt.ts  
- judge.prompt.ts  
- guardrail.prompt.ts  
- editor.prompt.ts  
- runSpeechwriter.ts  
-docs/  
- specs.md  
- changelog.md
+A user can:
 
----
+1. Describe a speech in one natural message in a **ChatGPT-style lozenge**.
+2. Speechwriter runs a structured pipeline:
+   - Planner → Dual Drafts → Judge → Guardrail → Editor
+3. The user sees:
+   - A **Suggested Output – v1** (recommended speech)
+   - Underneath: prior versions (if any) and key traces
+   - For v1: the original **request text** that produced it
+4. The user then iterates in the lozenge:
+   - “Add more detail to paragraph 2, keep everything else the same.”
+   - “Make the closing 10% more emotional, keep structure identical.”
+5. Speechwriter:
+   - Uses **Refinement Mode** to edit the previous version in place
+   - Produces **v2, v3, …** as new Suggested Outputs
+   - Preserves everything outside the requested change as far as possible
+6. At any point, the user can:
+   - Copy the current version
+   - Export to PDF
+   - Listen via text-to-speech
 
-## ⚙️ Pipeline Logic (Current Version)
-
-1. **Preparser** – parses raw text into structured config (`goal`, `audience`, `tone`, `duration`, `mustInclude`, `mustAvoid`).
-2. **Presets** – identifies contextual archetype (`student_personal_statement`, `ceo_allhands`, etc.).
-3. **Planner** – builds structured JSON plan.
-4. **Drafter** – produces two candidate drafts.
-5. **Judge** – selects winner, logs reasoning.
-6. **Guardrail** – enforces factual/tone constraints.
-7. **Editor** – refines for spoken delivery.
-8. **Persistence** – saves run (drafts, final, trace, metadata).
-9. **Memory (Phase E.3)** – updates lightweight user-trait memory to improve future outputs.
-
-Each stage appends to the `trace` array for Admin visibility.
+This is a **different category** of product from a chat interface: it is an **iterative speech workshop**.
 
 ---
 
-## 🧱 Phase Progression Summary
+## 2. System Overview
 
-| Phase   | Title                             | Core Deliverable                                | Status           |
-| ------- | --------------------------------- | ----------------------------------------------- | ---------------- |
-| **A**   | Environment & Scaffolding         | Repo setup + pipeline shell                     | ✅ Done          |
-| **B**   | Stabilisation & Core Logic        | Reliable end-to-end run                         | ✅ Done          |
-| **C**   | Persistence & Admin               | Supabase persistence + admin routes             | ✅ Done          |
-| **D**   | Intelligence & Observer Tools     | Dual-draft system + feedback logging + observer | ✅ Done          |
-| **E.1** | Conversational Interface          | ChatGPT-style PromptBar + UI polish             | ✅ Done          |
-| **E.2** | Profile & Preset Intelligence     | Preparser + implicit role detection + presets   | ✅ Done (v1.5.2) |
-| **E.3** | Profile Memory & Context Learning | Evolving implicit memory per user               | 🔄 In Progress   |
-| **E.4** | Analytics & Admin Instrumentation | Aggregated metrics on memory & accuracy         | ⏳ Planned       |
-| **E.5** | Deployment                        | Hosted test site for real users (e.g. Dan)      | ⏳ Planned       |
+### 2.1 High-Level Architecture
 
----
-
-## 🧠 Phase E.3 – Profile Memory & Context Learning
-
-### Objective
-
-Move from “smart per-run” to “quietly compounding intelligence per user” without adding friction.  
-Speechwriter should **remember** patterns (tone, role, preferred length, taboos) and use them to sharpen future outputs — all while preserving one-shot usability.
-
-### Design Principles
-
-1. **No extra forms** – memory is implicit; explicit profile optional.
-2. **Soft influence only** – memory biases defaults; never overrides user input.
-3. **Per-identity basis** – keyed by `user_id` or `anon_id`.
-4. **Explainable to admins** – every trait viewable via Admin Console.
-5. **Revocable** – ability to reset/forget a user memory later.
-
-### Implementation Scope
-
-#### Database Layer
-
-The following SQL defines the `speechwriter_memory` table and applies secure access policies.
-
-create table if not exists speechwriter_memory (  
- id uuid primary key default gen_random_uuid(),  
- user_id uuid references auth.users(id),  
- anon_id text,  
- traits jsonb not null default '{}'::jsonb,  
- runs_count integer not null default 0,  
- last_updated timestamptz not null default now()  
-);
-
-create unique index if not exists idx_speechwriter_memory_user_id  
- on speechwriter_memory(user_id) where user_id is not null;
-
-create unique index if not exists idx_speechwriter_memory_anon_id  
- on speechwriter_memory(anon_id) where anon_id is not null;
-
-alter table speechwriter_memory enable row level security;
-
-do $$  
-begin  
- if not exists (  
- select 1 from pg_policies  
- where tablename = 'speechwriter_memory'  
- and policyname = 'service_role_full_access_speechwriter_memory'  
- ) then  
- create policy service_role_full_access_speechwriter_memory  
- on speechwriter_memory  
- for all  
- using (auth.role() = 'service_role')  
- with check (auth.role() = 'service_role');  
- end if;  
-end$$;
-
-#### Server Logic
-
-- On **new run**:  
-  `loadMemory(userId | anonId)` → inject traits into Preparser / Planner.
-- On **successful completion**:  
-  derive new traits (average tone, length, topic) → `upsertMemory`.
-- Store aggregate metadata: `runs_count`, `last_updated`.
-
-#### Admin Integration
-
-- Add read-only memory view in Admin Console.
-- Later (Phase E.4): aggregate metrics showing improvement in inferred tone/role accuracy.
-
-### Productisation & Access Control
-
-**Status:** ✅ Landing + Login Flow Complete  
-**Next:** E4 Admin Intelligence Console & Voice / PDF Extensions---
-
-## 🧭 Future Outlook (Beyond E.3)
-
-1. **Phase E.4 – Analytics & Admin Instrumentation**  
-   Aggregate statistics on how well Speechwriter is inferring user intent and applying memory traits.
-
-2. **Phase E.5 – Deployment**  
-   Public test site for Dan and other early users.  
-   Authentication, Supabase hosting, custom domain, and telemetry setup.
+- **Frontend (Next.js)**
+  - `/dashboard/generate` – main speech generation & iteration UI
+  - Components:
+    - `PromptBar` – frozen ChatGPT-style lozenge
+    - `VersionCard` – renders a single Suggested Output version
+    - `OutputThread` – list of versions (newest at top)
+    - `VersionToolbar` – copy / export / speak controls
+- **Backend**
+  - `/api/speechwriter` – API route that:
+    - Resolves Supabase user identity
+    - Forwards all inputs + refinement context to the pipeline
+  - `runSpeechwriterPipeline` – core pipeline orchestrator:
+    - `mode: 'generate' | 'refine'`
+    - Full multi-stage generation pipeline
+    - Lightweight **Refinement Mode v1**
+- **Data**
+  - Supabase Postgres:
+    - `speeches` – stores runs (both generate and refine)
+    - `speechwriter_memory` – stores inferred traits per user / anon id
 
 ---
 
-**End of Document**
+## 3. Generation Pipeline (Generate Mode – MVP)
+
+`mode = 'generate'` is used when:
+
+- There is **no previous version** in the current thread, or
+- The user explicitly asks for a new speech (e.g. “new speech”, “start again”, “different topic”, etc.)
+
+### 3.1 Preparser
+
+Normalises and enriches the raw brief.  
+Non-fatal: failure drops back to raw brief.
+
+### 3.2 Preset Matcher (Soft)
+
+Optional heuristic preset ID that nudges planner tone/structure.
+
+### 3.3 Planner
+
+Converts the brief into structured internal plan JSON:
+
+- `coreMessage`
+- `audienceSummary`
+- `emotionalArc`
+- `pillars[]`
+- `risks[]`
+
+### 3.4 Drafter (Dual Drafts)
+
+Generates two diverse drafts for competitive selection.
+
+### 3.5 Judge
+
+Chooses the stronger draft and provides a rationale.
+
+### 3.6 Guardrail
+
+Safety, tone and constraint enforcement; minimal adjustments only.
+
+### 3.7 Editor (Performance Editor v1)
+
+Optimises the winning draft for spoken delivery.
+
+### 3.8 Persistence & Memory
+
+`supabase.speeches` and `speechwriter_memory` updated for each generate run.
+
+---
+
+## 4. Refinement Mode v1 (Iterative Editing)
+
+`mode = 'refine'` is used when:
+
+- A previous version exists, and
+- The new request does not match “new speech” intent.
+
+### 4.1 Mode Detection
+
+Keywords → generate  
+Otherwise → refine
+
+### 4.2 Behaviour (Refine)
+
+- **Skips** planner, drafter, judge.
+- Runs a single **text-model refinement**:
+
+**Rules:**
+
+- Apply only the requested changes.
+- Preserve all other content.
+- Do not change topic, purpose, or tone.
+- Do not create new sections unless explicitly asked.
+
+**Output:**
+
+- Full revised speech.
+
+### 4.3 Persistence & Memory
+
+Refinement runs are saved to `speeches` with `draft_1 = draft_2 = null`.  
+Traits may still be inferred from final speech.
+
+---
+
+## 5. Frontend UX – Generate & Iterate
+
+### 5.1 Lozenge (PromptBar)
+
+- ChatGPT-style
+- Grows with text
+- Icons:
+  - “+” (future: upload)
+  - microphone
+  - circular submit arrow
+- Tooltip hints on hover
+
+### 5.2 Narration Feed
+
+Single-line status replacing the progress bar:
+
+- Planning…
+- Drafting…
+- Judging…
+- Guardrail review…
+- Polishing…
+- “Ask for tweaks, new directions…” when idle.
+
+### 5.3 Version Thread
+
+Newest version at top.
+
+Each version card:
+
+- Header: “Suggested Output — vN”
+- Timestamp
+- Request strip: “Request — vN”
+- Full speech text
+- Toolbar: copy / PDF / TTS
+
+### 5.4 User Education
+
+Small helper text:
+
+> For precise edits, try:  
+> “Keep everything the same except…”  
+> “Only change paragraph 2 by…”
+
+---
+
+## 6. Non-Functional Requirements
+
+- Graceful failure with trace logging
+- Fast refinement (single call)
+- Observability at each stage
+- Deterministic-feeling behaviour in refinement mode
+- Full alignment with MicroFactory design standards
+
+---
+
+## 7. Roadmap (After MVP + Refinement v1)
+
+### 7.1 Surgical Patch Engine (Post-MVP)
+
+- Span ID segmentation
+- JSON patches for controlled edits
+- Git-style diff view
+- Locked context verification
+
+### 7.2 Chain-of-Critique Smoother
+
+- Micro-judge detects coherence/tone issues
+- Minimal micro-edits to restore flow
+- Never rewrites whole sections
+
+### 7.3 Voice & Audience Profiler
+
+- Controls for tone, register, audience type
+- Multi-voice rendering
+
+### 7.4 Golden Memory
+
+- User-selected “Gold” outputs
+- Embedding-driven improvements
+- Stylistic biasing in drafts and editor
+
+### 7.5 Live Guardrails
+
+- Real-time tone drift, taboo detection
+- Spoken-delivery pacing warnings
+
+### 7.6 Multimodal Output Layer
+
+- AI narration
+- Teleprompter mode
+- Slide cue extraction
+- PDF booklet export
+
+### 7.7 Feedback Learning Loop
+
+- User ratings
+- “Did it land well?” collection
+- Adaptive judge calibration
+
+### 7.8 Human-in-the-Loop (Premium)
+
+- Invite reviewer
+- Reviewer uses same patch engine
+- Collaborative versioning
+
+---
+
+## 8. Strategic Narrative
+
+Speechwriter is evolving from:
+
+> **“A tool that writes speeches”**
+
+to:
+
+> **“A communication intelligence system that helps leaders craft, refine, and deliver messages that matter — with consistency, precision, and trust.”**
+
+The Refinement Engine v1 is the turning point where Speechwriter **surpasses ChatGPT** in professional writing workflows by providing:
+
+- Deterministic edits
+- Localised changes
+- Versioned iterations
+- Structured multi-stage generation
+
+This is the foundation for the full patch-based editing engine in the next phase.

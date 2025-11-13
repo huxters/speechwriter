@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import PromptBar from '@/components/PromptBar';
 import VersionCard, {
   VersionVM,
@@ -19,6 +19,14 @@ type PipelineResult = {
 };
 
 type TraceEntry = TraceEntryVM;
+
+type HistoryItem = {
+  id: string;
+  brief: string | null;
+  final_speech: string | null;
+  trace: TraceEntryVM[] | null;
+  created_at: string | null;
+};
 
 export default function DashboardGeneratePage(): JSX.Element {
   // Conversational input
@@ -68,6 +76,59 @@ export default function DashboardGeneratePage(): JSX.Element {
     }
   }
 
+  // --- Hydrate from history on first load ---
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadHistory() {
+      try {
+        const res = await fetch('/api/speechwriter/history', {
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json' },
+        });
+
+        if (!res.ok) {
+          // History is non-critical – fail quietly with a trace in future if needed
+          return;
+        }
+
+        const data: { items: HistoryItem[] } = await res.json();
+        if (!data || !Array.isArray(data.items) || cancelled) return;
+
+        const items = data.items.filter(item => item.final_speech && item.final_speech.trim());
+
+        if (items.length === 0) return;
+
+        // items are already sorted newest first by created_at
+        const total = items.length;
+
+        const mapped: VersionVM[] = items.map((item, index) => ({
+          index: total - index, // oldest = 1, newest = total
+          createdAt: item.created_at ? new Date(item.created_at) : new Date(),
+          text: item.final_speech || '',
+          drafts: null,
+          judge: null,
+          guardrail: null,
+          trace: Array.isArray(item.trace) ? (item.trace as TraceEntryVM[]) : [],
+          requestText: item.brief || '',
+        }));
+
+        // Newest version should still be at top visually
+        mapped.sort((a, b) => b.index - a.index);
+
+        setVersions(mapped);
+      } catch {
+        // Silent failure – history is helpful but not critical
+      }
+    }
+
+    loadHistory();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   async function runPipeline() {
     const trimmed = rawBrief.trim();
     if (!trimmed) {
@@ -100,7 +161,7 @@ export default function DashboardGeneratePage(): JSX.Element {
           duration,
           mustInclude,
           mustAvoid,
-          // NEW: context for refinement mode (null on first run)
+          // context for refinement mode (null on first run)
           previousVersionText,
           previousRequestText,
         }),
@@ -274,7 +335,7 @@ export default function DashboardGeneratePage(): JSX.Element {
         <div style={{ marginTop: 18, display: 'flex', flexDirection: 'column', gap: 12 }}>
           {versions.map((version, idx) => (
             <VersionCard
-              key={version.index}
+              key={`${version.index}-${version.createdAt.toISOString()}-${idx}`}
               version={version}
               expanded={idx === 0} // most recent open by default
               onCopy={() => handleCopy(version)}
