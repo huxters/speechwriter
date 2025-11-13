@@ -1,16 +1,12 @@
 'use client';
 
-import React, { useCallback, useEffect, useRef } from 'react';
+import React from 'react';
 
-type Props = {
+type PromptBarProps = {
   value: string;
-  onChange: (v: string) => void;
+  onChange: (value: string) => void;
   onSubmit: () => void;
   disabled?: boolean;
-  placeholder?: string;
-  // Optional hooks (additive)
-  onUpload?: (files: FileList) => void;
-  onMicClick?: () => void;
 };
 
 export default function PromptBar({
@@ -18,251 +14,251 @@ export default function PromptBar({
   onChange,
   onSubmit,
   disabled = false,
-  placeholder = 'Describe what you want to create…',
-  onUpload,
-  onMicClick,
-}: Props) {
-  const fileRef = useRef<HTMLInputElement | null>(null);
-  const taRef = useRef<HTMLTextAreaElement | null>(null);
+}: PromptBarProps): JSX.Element {
+  const isEmpty = !value.trim();
+  const canSend = !disabled && !isEmpty;
 
-  // Auto-grow textarea: one-line baseline, expands as needed
-  const autoGrow = useCallback(() => {
-    const ta = taRef.current;
-    if (!ta) return;
-    ta.style.height = 'auto';
-    ta.style.height = Math.min(ta.scrollHeight, 240) + 'px'; // cap growth for sanity
-  }, []);
-
-  useEffect(() => {
-    autoGrow();
-  }, [value, autoGrow]);
-
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      if (disabled) return;
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        if (value.trim()) onSubmit();
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      if (canSend) {
+        onSubmit();
       }
-    },
-    [disabled, onSubmit, value]
-  );
+    }
+  };
 
-  const triggerFile = useCallback(() => {
-    if (disabled) return;
-    fileRef.current?.click();
-  }, [disabled]);
+  const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const el = e.target;
+    // auto-resize height as user types (roomy, multi-line)
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, 140)}px`;
+    onChange(el.value);
+  };
 
-  const handleFileChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      if (e.target.files && e.target.files.length && onUpload) {
-        onUpload(e.target.files);
-      }
-      if (fileRef.current) fileRef.current.value = '';
-    },
-    [onUpload]
-  );
+  const iconCommon = {
+    width: 22,
+    height: 22,
+    viewBox: '0 0 24 24',
+    stroke: 'currentColor',
+    strokeWidth: 1.5,
+    fill: 'none',
+    strokeLinecap: 'round' as const,
+    strokeLinejoin: 'round' as const,
+  };
 
-  const canSend = !!value.trim() && !disabled;
+  const sideButtonBase: React.CSSProperties = {
+    border: 'none',
+    background: 'transparent',
+    padding: 4,
+    borderRadius: 9999,
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    cursor: disabled ? 'default' : 'pointer',
+    color: disabled ? '#9ca3af' : '#6b7280',
+    transition: 'background-color 120ms ease, color 120ms ease',
+    // small vertical nudge so icons align nicely with text baseline
+    marginTop: 2,
+  };
 
   return (
     <div
       style={{
-        position: 'relative',
-        width: '100%',
+        borderRadius: 9999,
         border: '1px solid #e5e7eb',
-        borderRadius: 20, // slightly more pill-like
-        background: disabled ? '#f9fafb' : '#ffffff',
-        boxShadow: '0 6px 18px rgba(17,24,39,0.06)',
+        backgroundColor: '#f9fafb',
+        // more generous, symmetric padding so icons sit well inside the pill
+        padding: '8px 16px',
+        display: 'flex',
+        alignItems: 'flex-end',
+        gap: 12, // slightly roomier spacing between plus, text, and right icons
+        width: '100%',
+        boxSizing: 'border-box',
       }}
     >
-      {/* Hidden file input */}
-      <input
-        ref={fileRef}
-        type="file"
-        multiple
-        onChange={handleFileChange}
-        style={{ display: 'none' }}
-        accept=".pdf,.txt,.doc,.docx,image/*"
-      />
-
-      {/* Left: "+" upload (larger, centered) */}
+      {/* Left: plus (upload stub) */}
       <button
         type="button"
-        onClick={triggerFile}
-        title="Upload (images or documents)"
-        aria-label="Upload"
-        disabled={disabled}
-        style={{
-          position: 'absolute',
-          left: 10,
-          top: '50%',
-          transform: 'translateY(-50%)',
-          height: 32,
-          width: 32,
-          border: 'none',
-          background: 'transparent',
-          padding: 0,
-          cursor: disabled ? 'not-allowed' : 'pointer',
-          opacity: disabled ? 0.5 : 1,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
+        aria-label="Attach file (coming soon)"
+        title="Attach (coming soon)"
+        style={sideButtonBase}
+        onMouseEnter={e => {
+          if (!disabled) e.currentTarget.style.backgroundColor = '#e5e7eb';
+        }}
+        onMouseLeave={e => {
+          e.currentTarget.style.backgroundColor = 'transparent';
+        }}
+        onClick={() => {
+          if (disabled) return;
+          if (typeof window !== 'undefined') {
+            // eslint-disable-next-line no-console
+            console.log('Attach stub clicked (no implementation yet).');
+          }
         }}
       >
-        <PlusIcon size={20} />
+        <svg {...iconCommon} aria-hidden="true" focusable="false" title="Attach (coming soon)">
+          <path d="M12 5v14" />
+          <path d="M5 12h14" />
+        </svg>
       </button>
 
-      {/* Textarea: thin baseline, grows on overflow; larger font like ChatGPT */}
+      {/* Center: text area */}
       <textarea
-        ref={taRef}
         value={value}
-        onChange={e => onChange(e.target.value)}
+        onChange={handleChange}
         onKeyDown={handleKeyDown}
-        onInput={autoGrow}
-        placeholder={placeholder}
+        placeholder="Describe the speech you want, or ask for changes…"
         disabled={disabled}
         rows={1}
         style={{
-          width: '100%',
+          flex: 1,
           border: 'none',
           outline: 'none',
-          resize: 'none', // we control growth
-          overflow: 'hidden',
-          // Thin baseline: room for + (left) and mic+send (right)
-          padding: '10px 112px 10px 48px',
-          fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif',
-          fontSize: 16, // larger, ChatGPT-like
-          lineHeight: 1.5,
-          color: '#111827',
+          resize: 'none',
           background: 'transparent',
-          minHeight: 44, // comfortable one-line height
+          color: '#111827',
+          fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif',
+          fontSize: 15,
+          lineHeight: 1.5,
+          padding: '6px 0',
+          minHeight: 24,
+          maxHeight: 140,
+          overflow: 'hidden',
         }}
       />
 
-      {/* Right: mic (outline) + circular send (larger) */}
+      {/* Right: microphone + send/stop */}
       <div
         style={{
-          position: 'absolute',
-          right: 10,
-          top: '50%',
-          transform: 'translateY(-50%)',
           display: 'flex',
-          alignItems: 'center',
-          gap: 12,
+          alignItems: 'flex-end',
+          gap: 6, // a touch more than before, keeps mic + arrow visually grouped
+          // tiny left shift of the whole right cluster for balance
+          marginRight: 2,
         }}
       >
-        {/* Mic */}
+        {/* Mic stub (slightly larger visual) */}
         <button
           type="button"
-          aria-label="Speak"
-          title="Speak (coming soon)"
-          onClick={() => {
-            if (!disabled && onMicClick) onMicClick();
+          aria-label="Dictate with microphone (coming soon)"
+          title="Dictate (coming soon)"
+          style={sideButtonBase}
+          onMouseEnter={e => {
+            if (!disabled) e.currentTarget.style.backgroundColor = '#e5e7eb';
           }}
-          disabled={disabled}
-          style={{
-            height: 32,
-            width: 32,
-            borderRadius: 10,
-            border: 'none',
-            background: 'transparent',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            cursor: disabled ? 'not-allowed' : 'pointer',
-            opacity: disabled ? 0.5 : 1,
+          onMouseLeave={e => {
+            e.currentTarget.style.backgroundColor = 'transparent';
+          }}
+          onClick={() => {
+            if (disabled) return;
+            if (typeof window !== 'undefined') {
+              // eslint-disable-next-line no-console
+              console.log('Mic stub clicked (no implementation yet).');
+            }
           }}
         >
-          <MicIcon size={20} />
+          <svg
+            width={24}
+            height={24}
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={1.5}
+            fill="none"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+            focusable="false"
+            title="Dictate (coming soon)"
+          >
+            <path d="M12 5a2 2 0 0 1 2 2v4a2 2 0 0 1-4 0V7a2 2 0 0 1 2-2z" />
+            <path d="M7 10a5 5 0 0 0 10 0" />
+            <path d="M12 15v3" />
+            <path d="M9 18h6" />
+          </svg>
         </button>
 
-        {/* Send circle */}
+        {/* Send / Stop */}
         <button
           type="button"
-          aria-label="Send"
-          onClick={() => {
-            if (canSend) onSubmit();
-          }}
-          disabled={!canSend}
+          aria-label={canSend ? 'Generate speech' : disabled ? 'Stop (running)' : 'Generate'}
+          title={canSend ? 'Generate' : disabled ? 'Stop' : 'Generate'}
           style={{
-            height: 36,
-            width: 36,
-            borderRadius: '50%',
             border: 'none',
-            background: canSend ? '#111827' : '#e5e7eb',
-            display: 'flex',
+            borderRadius: 9999,
+            padding: 4,
+            width: 32,
+            height: 32,
+            display: 'inline-flex',
             alignItems: 'center',
             justifyContent: 'center',
-            cursor: canSend ? 'pointer' : 'not-allowed',
-            transition: 'transform 120ms ease, opacity 120ms ease',
+            cursor: canSend || disabled ? 'pointer' : 'default',
+            backgroundColor: disabled ? '#6b7280' : canSend ? '#111827' : '#e5e7eb',
+            color: '#ffffff',
+            transition: 'background-color 120ms ease, transform 120ms ease',
+            marginTop: 2, // align with mic + text
+          }}
+          onMouseEnter={e => {
+            if (disabled) return;
+            if (canSend) {
+              e.currentTarget.style.backgroundColor = '#000000';
+            }
+          }}
+          onMouseLeave={e => {
+            if (disabled) {
+              e.currentTarget.style.backgroundColor = '#6b7280';
+            } else if (canSend) {
+              e.currentTarget.style.backgroundColor = '#111827';
+            } else {
+              e.currentTarget.style.backgroundColor = '#e5e7eb';
+            }
+          }}
+          onClick={() => {
+            if (disabled) {
+              if (typeof window !== 'undefined') {
+                // eslint-disable-next-line no-console
+                console.log('Stop stub clicked (cancel not implemented).');
+              }
+              return;
+            }
+            if (canSend) {
+              onSubmit();
+            }
           }}
         >
           {disabled ? (
-            <Spinner size={18} />
+            // Larger stop square
+            <svg
+              width={18}
+              height={18}
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+              focusable="false"
+              title="Stop"
+            >
+              <rect x="6" y="6" width="12" height="12" rx="3" ry="3" fill="currentColor" />
+            </svg>
           ) : (
-            <UpArrowIcon size={18} color={canSend ? '#ffffff' : '#9ca3af'} />
+            // Send arrow (paper-plane style)
+            <svg
+              width={18}
+              height={18}
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+              focusable="false"
+              title="Generate"
+            >
+              <path
+                d="M5 12L19 5l-3.5 14L11 13l-4-1z"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={1.6}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
           )}
         </button>
       </div>
     </div>
-  );
-}
-
-/* ——— Icons (scaled up to match ChatGPT feel) ——— */
-
-function PlusIcon({ size = 20, color = '#111827' }: { size?: number; color?: string }) {
-  const s = String(size);
-  return (
-    <svg width={s} height={s} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path d="M12 5v14M5 12h14" stroke={color} strokeWidth="2" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function MicIcon({ size = 20, color = '#111827' }: { size?: number; color?: string }) {
-  const s = String(size);
-  return (
-    <svg width={s} height={s} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path
-        d="M12 15a3 3 0 0 0 3-3V7a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3z"
-        stroke={color}
-        strokeWidth="2"
-      />
-      <path d="M19 11a7 7 0 0 1-14 0" stroke={color} strokeWidth="2" strokeLinecap="round" />
-      <path d="M12 19v2" stroke={color} strokeWidth="2" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function UpArrowIcon({ size = 18, color = '#ffffff' }: { size?: number; color?: string }) {
-  const s = String(size);
-  return (
-    <svg width={s} height={s} viewBox="0 0 20 20" fill="none" aria-hidden="true">
-      <path
-        d="M10 4l5.5 5.5a.75.75 0 1 1-1.06 1.06L10.75 6.87V16a.75.75 0 0 1-1.5 0V6.87L5.56 10.56a.75.75 0 0 1-1.06-1.06L10 4z"
-        fill={color}
-      />
-    </svg>
-  );
-}
-
-function Spinner({ size = 18 }: { size?: number }) {
-  const s = String(size);
-  return (
-    <span
-      aria-hidden
-      style={{
-        width: s,
-        height: s,
-        display: 'inline-block',
-        borderRadius: '50%',
-        border: '2px solid #c7d2fe',
-        borderTopColor: '#2563eb',
-        animation: 'spin 0.7s linear infinite',
-      }}
-    >
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-    </span>
   );
 }

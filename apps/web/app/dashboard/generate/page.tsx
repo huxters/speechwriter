@@ -1,27 +1,24 @@
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useState } from 'react';
 import PromptBar from '@/components/PromptBar';
-import OutputPanel from '@/components/OutputPanel';
-import NarrationFeed from '@/components/NarrationFeed';
-
-type TraceEntry = { stage: string; message: string };
-type JudgeInfo = { winner: 1 | 2; reason: string };
-type GuardrailInfo = { ok: boolean; message: string };
-
-type Drafts = {
-  draft1: string;
-  draft2: string;
-  winnerLabel: 'draft1' | 'draft2';
-};
+import VersionCard, {
+  VersionVM,
+  DraftsVM,
+  JudgeVM,
+  GuardrailVM,
+  TraceEntryVM,
+} from '@/components/VersionCard';
 
 type PipelineResult = {
-  finalSpeech: string | null; // editor output (Final Output)
-  drafts: Drafts | null; // both drafts + winner label
-  judge: JudgeInfo | null;
-  guardrail: GuardrailInfo | null;
-  trace: TraceEntry[];
+  finalSpeech: string | null;
+  drafts: DraftsVM | null;
+  judge: JudgeVM | null;
+  guardrail: GuardrailVM | null;
+  trace: TraceEntryVM[];
 };
+
+type TraceEntry = TraceEntryVM;
 
 export default function DashboardGeneratePage(): JSX.Element {
   // Conversational input
@@ -36,82 +33,76 @@ export default function DashboardGeneratePage(): JSX.Element {
   const [mustAvoid, setMustAvoid] = useState('');
   const [showAdvanced, setShowAdvanced] = useState(false);
 
-  // Pipeline state
+  // Pipeline + UI state
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [trace, setTrace] = useState<TraceEntry[]>([]);
+  const [narration, setNarration] = useState<string>('Ready. Describe your speech to get started.');
 
-  // Results (hidden until we have them)
-  const [hasResults, setHasResults] = useState(false);
-  const [draft1, setDraft1] = useState<string>('');
-  const [draft2, setDraft2] = useState<string>('');
-  const [winnerLabel, setWinnerLabel] = useState<'draft1' | 'draft2' | null>(null);
-  const [finalText, setFinalText] = useState<string>('');
+  // Versions (multi-iteration output thread)
+  const [versions, setVersions] = useState<VersionVM[]>([]);
 
-  // Narration (single-line, overwriting)
-  const [narration, setNarration] = useState<string>('');
-  const timersRef = useRef<number[]>([]);
-
-  function clearTimers() {
-    timersRef.current.forEach(id => window.clearTimeout(id));
-    timersRef.current = [];
+  function setNarrationStage(
+    stage: 'idle' | 'planning' | 'drafting' | 'judging' | 'guardrail' | 'editing'
+  ) {
+    switch (stage) {
+      case 'planning':
+        setNarration('Planning the structure and emotional arc of your speech…');
+        break;
+      case 'drafting':
+        setNarration('Drafting two competing versions from the plan…');
+        break;
+      case 'judging':
+        setNarration('Judging the drafts to pick the stronger option…');
+        break;
+      case 'guardrail':
+        setNarration('Checking tone, safety, and constraints…');
+        break;
+      case 'editing':
+        setNarration('Polishing the winner for spoken delivery…');
+        break;
+      case 'idle':
+      default:
+        setNarration('Ask for tweaks, new directions, or a different speech whenever you like.');
+        break;
+    }
   }
 
   async function runPipeline() {
-    if (!rawBrief.trim()) {
+    const trimmed = rawBrief.trim();
+    if (!trimmed) {
       setError('Please describe what you want to create.');
       return;
     }
 
+    // Capture the request text for THIS run before we clear anything
+    const requestForThisRun = trimmed;
+
+    // Capture latest version context for refinement mode
+    const latestVersion = versions.length > 0 ? versions[0] : null;
+    const previousVersionText = latestVersion?.text ?? null;
+    const previousRequestText = latestVersion?.requestText ?? null;
+
     setLoading(true);
     setError(null);
     setTrace([]);
-    setHasResults(false);
-    setDraft1('');
-    setDraft2('');
-    setWinnerLabel(null);
-    setFinalText('');
-    setNarration('Planning your speech structure and core arguments…');
-
-    // Time-gated narration for C.1; replaced by real stage sync in C.2
-    clearTimers();
-    timersRef.current.push(
-      window.setTimeout(
-        () => setNarration('Writing two alternative drafts with different tones…'),
-        900
-      )
-    );
-    timersRef.current.push(
-      window.setTimeout(
-        () => setNarration('Comparing drafts for clarity, tone, and persuasion…'),
-        1900
-      )
-    );
-    timersRef.current.push(
-      window.setTimeout(
-        () => setNarration('Checking the winning version for restricted or taboo content…'),
-        2900
-      )
-    );
-    timersRef.current.push(
-      window.setTimeout(
-        () => setNarration('Polishing language and rhythm for spoken delivery…'),
-        3900
-      )
-    );
+    setNarrationStage('planning');
 
     try {
       const res = await fetch('/api/speechwriter', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          rawBrief,
+          rawBrief: trimmed,
           audience,
           eventContext,
           tone,
           duration,
           mustInclude,
           mustAvoid,
+          // NEW: context for refinement mode (null on first run)
+          previousVersionText,
+          previousRequestText,
         }),
       });
 
@@ -120,62 +111,69 @@ export default function DashboardGeneratePage(): JSX.Element {
         throw new Error(msg || `API error (${res.status})`);
       }
 
+      setNarrationStage('drafting');
+
       const data: PipelineResult = await res.json();
 
-      // Trace
+      setNarrationStage('judging');
       setTrace(Array.isArray(data.trace) ? data.trace : []);
 
-      // Drafts
-      if (data.drafts) {
-        setDraft1(data.drafts.draft1 || '');
-        setDraft2(data.drafts.draft2 || '');
-        setWinnerLabel(data.drafts.winnerLabel || null);
-      }
-
-      // Final Output
+      // Build new version from pipeline result
       const final = data.finalSpeech ?? '';
-      setFinalText(final);
 
-      setHasResults(Boolean(final || (data.drafts && (data.drafts.draft1 || data.drafts.draft2))));
+      const newVersion: VersionVM = {
+        index: versions.length + 1,
+        createdAt: new Date(),
+        text: final,
+        drafts: data.drafts ?? null,
+        judge: data.judge ?? null,
+        guardrail: data.guardrail ?? null,
+        trace: Array.isArray(data.trace) ? data.trace : [],
+        requestText: requestForThisRun, // request that produced this version
+      };
+
+      // Newest version at the top (directly under the lozenge)
+      setVersions(prev => [newVersion, ...prev]);
+
+      setNarrationStage('editing');
 
       if (!final) {
         setError('Pipeline completed without a final draft. Please try again.');
       } else {
-        setNarration('Finished — here’s your final speech.');
+        // Clear the lozenge ready for the next refinement / new speech
+        setRawBrief('');
+        // Back to idle helper text
+        setNarrationStage('idle');
       }
     } catch (e: any) {
       setError(e?.message || 'Internal error running Speechwriter pipeline.');
-      setNarration(''); // clear narration on hard error
+      setNarration('Something went wrong while running the pipeline.');
     } finally {
-      clearTimers();
       setLoading(false);
     }
   }
 
-  // Cleanup timers if component unmounts
-  useEffect(() => clearTimers, []);
-
-  // Actions wired to OutputPanel
-  function handleCopy() {
-    if (!finalText) return;
-    navigator.clipboard.writeText(finalText).catch(() => {});
+  // Actions wired per version
+  function handleCopy(version: VersionVM) {
+    if (!version.text) return;
+    navigator.clipboard.writeText(version.text).catch(() => {});
   }
 
-  function handleExportPdf() {
-    if (!finalText) return;
+  function handleExportPdf(version: VersionVM) {
+    if (!version.text) return;
     import('jspdf')
       .then(({ jsPDF }) => {
         const doc = new jsPDF();
-        const lines = doc.splitTextToSize(finalText, 180);
+        const lines = doc.splitTextToSize(version.text, 180);
         doc.text(lines, 15, 20);
-        doc.save('speechwriter-output.pdf');
+        doc.save(`speechwriter-v${version.index}.pdf`);
       })
       .catch(() => {
         const w = window.open('', '_blank');
         if (w) {
           w.document.write(
             `<pre style="white-space:pre-wrap;font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;">${escapeHtml(
-              finalText
+              version.text
             )}</pre>`
           );
           w.document.close();
@@ -185,9 +183,9 @@ export default function DashboardGeneratePage(): JSX.Element {
       });
   }
 
-  function handleSpeak() {
-    if (!finalText) return;
-    const u = new SpeechSynthesisUtterance(finalText);
+  function handleSpeak(version: VersionVM) {
+    if (!version.text) return;
+    const u = new SpeechSynthesisUtterance(version.text);
     window.speechSynthesis.cancel();
     window.speechSynthesis.speak(u);
   }
@@ -200,24 +198,22 @@ export default function DashboardGeneratePage(): JSX.Element {
         guardrail, and edit — then show you the recommended version and how we got there.
       </p>
 
-      {/* Lozenge — now full container width with in-lozenge arrow */}
+      {/* Lozenge */}
       <PromptBar
         value={rawBrief}
         onChange={setRawBrief}
         onSubmit={runPipeline}
         disabled={loading}
-        placeholder="Describe the speech you want to create…"
       />
 
-      {/* Single-line narration that overwrites itself */}
-      <NarrationFeed message={narration} visible={loading || !!narration} />
+      {/* Narration feed */}
+      <div style={{ marginTop: 8, fontSize: 12, color: '#6b7280' }}>{narration}</div>
 
       {/* Advanced constraints toggle */}
       <div style={{ marginTop: 10 }}>
         <button
           type="button"
           onClick={() => setShowAdvanced(v => !v)}
-          disabled={loading}
           style={{
             fontSize: 12,
             padding: '6px 10px',
@@ -225,8 +221,7 @@ export default function DashboardGeneratePage(): JSX.Element {
             border: '1px solid #e5e7eb',
             background: '#f9fafb',
             color: '#6b7280',
-            cursor: loading ? 'not-allowed' : 'pointer',
-            opacity: loading ? 0.6 : 1,
+            cursor: 'pointer',
           }}
         >
           {showAdvanced ? 'Hide' : 'Show'} advanced fields (optional constraints)
@@ -242,129 +237,56 @@ export default function DashboardGeneratePage(): JSX.Element {
             placeholder="Audience (optional)"
             value={audience}
             onChange={e => setAudience(e.target.value)}
-            disabled={loading}
           />
           <input
             placeholder="Context (optional)"
             value={eventContext}
             onChange={e => setEventContext(e.target.value)}
-            disabled={loading}
           />
           <input
             placeholder="Tone (optional)"
             value={tone}
             onChange={e => setTone(e.target.value)}
-            disabled={loading}
           />
           <input
             placeholder="Duration (e.g. 5 minutes)"
             value={duration}
             onChange={e => setDuration(e.target.value)}
-            disabled={loading}
           />
           <input
             placeholder="Must include (comma-separated)"
             value={mustInclude}
             onChange={e => setMustInclude(e.target.value)}
-            disabled={loading}
           />
           <input
             placeholder="Must avoid (comma-separated)"
             value={mustAvoid}
             onChange={e => setMustAvoid(e.target.value)}
-            disabled={loading}
           />
         </div>
       )}
 
-      {/* RESULTS — only render after a run returns something */}
-      {hasResults && (
-        <>
-          {/* Drafts row */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginTop: 18 }}>
-            <div style={cardStyle}>
-              <h3 style={cardTitle}>
-                Draft 1 {winnerLabel === 'draft1' ? '✓ (judge choice)' : ''}
-              </h3>
-              <div style={cardBody}>
-                {draft1 ? <pre style={preStyle}>{draft1}</pre> : <em>—</em>}
-              </div>
-            </div>
-            <div style={cardStyle}>
-              <h3 style={cardTitle}>
-                Draft 2 {winnerLabel === 'draft2' ? '✓ (judge choice)' : ''}
-              </h3>
-              <div style={cardBody}>
-                {draft2 ? <pre style={preStyle}>{draft2}</pre> : <em>—</em>}
-              </div>
-            </div>
-          </div>
+      {/* Error (if any) */}
+      {error && <div style={{ marginTop: 10, color: '#b91c1c', fontSize: 13 }}>{error}</div>}
 
-          {/* Final Output */}
-          <div style={{ ...cardStyle, marginTop: 18 }}>
-            <OutputPanel
-              finalText={finalText}
-              onCopy={handleCopy}
-              onExportPdf={handleExportPdf}
-              onSpeak={handleSpeak}
+      {/* Output thread: newest version first */}
+      {versions.length > 0 && (
+        <div style={{ marginTop: 18, display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {versions.map((version, idx) => (
+            <VersionCard
+              key={version.index}
+              version={version}
+              expanded={idx === 0} // most recent open by default
+              onCopy={() => handleCopy(version)}
+              onExportPdf={() => handleExportPdf(version)}
+              onSpeak={() => handleSpeak(version)}
             />
-          </div>
-
-          {/* Trace */}
-          <div style={{ ...cardStyle, marginTop: 16 }}>
-            <h3 style={cardTitle}>Pipeline Trace (internal)</h3>
-            <div style={traceBox}>
-              {trace.length === 0 ? (
-                <em>—</em>
-              ) : (
-                <ul style={{ margin: 0, paddingLeft: 18 }}>
-                  {trace.map((t, i) => (
-                    <li key={`${t.stage}-${i}`} style={{ marginBottom: 4 }}>
-                      <strong>[{t.stage}]</strong> {t.message}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-            {error && <div style={{ marginTop: 10, color: '#b91c1c', fontSize: 13 }}>{error}</div>}
-          </div>
-        </>
+          ))}
+        </div>
       )}
     </div>
   );
 }
-
-// styles
-const cardStyle: React.CSSProperties = {
-  border: '1px solid #e5e7eb',
-  borderRadius: 12,
-  background: '#ffffff',
-  boxShadow: '0 6px 18px rgba(17,24,39,0.06)',
-};
-
-const cardTitle: React.CSSProperties = {
-  margin: '10px 12px 6px',
-  fontSize: 14,
-  color: '#111827',
-};
-
-const cardBody: React.CSSProperties = {
-  padding: '0 12px 12px',
-};
-
-const preStyle: React.CSSProperties = {
-  whiteSpace: 'pre-wrap',
-  margin: 0,
-  font: '14px/1.5 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif',
-};
-
-const traceBox: React.CSSProperties = {
-  padding: 12,
-  background: '#f9fafb',
-  borderTop: '1px solid #f3f4f6',
-  borderBottomLeftRadius: 12,
-  borderBottomRightRadius: 12,
-};
 
 // HTML escape for print fallback
 function escapeHtml(s: string) {

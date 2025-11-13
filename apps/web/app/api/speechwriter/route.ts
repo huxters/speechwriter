@@ -6,8 +6,19 @@ export async function POST(req: Request) {
   try {
     const body = await req.json();
 
-    const { rawBrief, audience, eventContext, tone, duration, mustInclude, mustAvoid, anonUserId } =
-      body || {};
+    const {
+      rawBrief,
+      audience,
+      eventContext,
+      tone,
+      duration,
+      mustInclude,
+      mustAvoid,
+      anonUserId,
+      // NEW: refinement context from the frontend
+      previousVersionText,
+      previousRequestText,
+    } = body || {};
 
     const supabase = await createClient();
     const {
@@ -31,6 +42,9 @@ export async function POST(req: Request) {
       duration,
       mustInclude,
       mustAvoid,
+      // NEW: pass refinement hints down to the pipeline
+      previousVersionText: previousVersionText || null,
+      previousRequestText: previousRequestText || null,
     });
 
     return NextResponse.json(result);

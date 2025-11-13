@@ -55,7 +55,12 @@ type RunInput = {
   mustAvoid?: string;
   userId?: string | null;
   anonId?: string | null;
+  // NEW: refinement context from the frontend
+  previousVersionText?: string | null;
+  previousRequestText?: string | null;
 };
+
+type Mode = 'generate' | 'refine';
 
 function addTrace(trace: TraceEntry[], stage: string, message: string) {
   trace.push({ stage, message });
@@ -68,6 +73,31 @@ function getServiceSupabase(): SupabaseClient | null {
   return createSupabaseClient(url, key, {
     auth: { autoRefreshToken: false, persistSession: false },
   });
+}
+
+function looksLikeNewSpeechRequest(rawBrief: string): boolean {
+  const lower = rawBrief.toLowerCase();
+  const triggers = [
+    'new speech',
+    'start again',
+    'fresh speech',
+    'fresh talk',
+    'ignore the previous',
+    'ignore the last',
+    'different topic',
+    'different subject',
+  ];
+  return triggers.some(t => lower.includes(t));
+}
+
+function decideMode(rawBrief: string, previousVersionText: string | null): Mode {
+  if (!previousVersionText || !previousVersionText.trim()) {
+    return 'generate';
+  }
+  if (looksLikeNewSpeechRequest(rawBrief)) {
+    return 'generate';
+  }
+  return 'refine';
 }
 
 async function callJsonModel(params: { system: string; user: any }): Promise<any> {
@@ -124,6 +154,8 @@ export async function runSpeechwriterPipeline(input: RunInput): Promise<Pipeline
     mustAvoid,
     userId = null,
     anonId = null,
+    previousVersionText = null,
+    previousRequestText = null,
   } = input;
 
   if (!rawBrief || !rawBrief.trim()) {
@@ -162,6 +194,157 @@ export async function runSpeechwriterPipeline(input: RunInput): Promise<Pipeline
   } else {
     addTrace(trace, 'memory', 'Memory load skipped (no identity or service key).');
   }
+
+  // Decide whether this is a fresh generation or a refinement
+  const mode: Mode = decideMode(rawBrief, previousVersionText);
+
+  if (mode === 'refine') {
+    // --- REFINEMENT MODE (v1) ---
+    addTrace(
+      trace,
+      'mode',
+      `Refinement mode: editing prior version with new request "${rawBrief.slice(0, 160)}${
+        rawBrief.length > 160 ? '…' : ''
+      }"`
+    );
+
+    if (!previousVersionText || !previousVersionText.trim()) {
+      addTrace(
+        trace,
+        'refiner',
+        'Refinement requested but no previousVersionText provided; falling back to no-op.'
+      );
+      return {
+        finalSpeech: previousVersionText || null,
+        drafts: null,
+        judge: null,
+        guardrail: null,
+        trace,
+      };
+    }
+
+    let finalSpeech = previousVersionText;
+
+    try {
+      const systemPrompt = `
+You are a careful speech editor.
+
+You are given:
+- the current version of a speech
+- a user's revision request
+
+Your job:
+- Apply ONLY the requested changes.
+- Keep every other sentence, paragraph, and structural element as close as possible to the original.
+- Do NOT change the topic, audience, or purpose of the speech.
+- Do NOT introduce new themes, sections, or digressions unless explicitly asked.
+- Maintain the approximate length and tone of the original.
+
+Output:
+- The full revised speech only, as plain text paragraphs.
+      `.trim();
+
+      const userPrompt = `
+[CURRENT SPEECH]
+${previousVersionText}
+
+[REVISION REQUEST]
+${rawBrief}
+      `.trim();
+
+      const refined = await callTextModel({
+        system: systemPrompt,
+        user: userPrompt,
+      });
+
+      if (refined && refined.trim()) {
+        finalSpeech = refined.trim();
+        addTrace(trace, 'refiner', 'Refiner: applied requested changes to previous version.');
+      } else {
+        addTrace(
+          trace,
+          'refiner',
+          'Refiner returned empty content; keeping previous version unchanged.'
+        );
+      }
+    } catch (err: any) {
+      addTrace(
+        trace,
+        'refiner',
+        `Refiner failed; keeping previous version unchanged. ${err?.message || String(err)}`
+      );
+    }
+
+    // --- Persistence: save refined speech as a new run ---
+    if (supabase && (userId || anonId) && finalSpeech) {
+      try {
+        const insert: any = {
+          brief: rawBrief,
+          draft_1: null,
+          draft_2: null,
+          final_speech: finalSpeech,
+          trace,
+        };
+        if (userId) insert.user_id = userId;
+        if (anonId) insert.anon_id = anonId;
+
+        const { error } = await supabase.from('speeches').insert(insert);
+
+        if (error) {
+          addTrace(trace, 'persistence', `Failed to save refinement: ${error.message}`);
+        } else {
+          addTrace(trace, 'persistence', 'Saved refinement run to history for current identity.');
+        }
+      } catch (err: any) {
+        addTrace(trace, 'persistence', `Failed to save refinement: ${err?.message || String(err)}`);
+      }
+    } else {
+      addTrace(
+        trace,
+        'persistence',
+        'No user/anon identity or final speech; refinement run not saved.'
+      );
+    }
+
+    // --- Memory: update traits (non-blocking) for refinement ---
+    try {
+      if (supabase && (userId || anonId) && finalSpeech) {
+        const inferred = inferTraitsFromRun({
+          planJson: null,
+          finalSpeech,
+          presetId: undefined,
+        });
+
+        if (inferred && Object.keys(inferred).length > 0) {
+          await upsertMemoryTraits({
+            supabase,
+            userId,
+            anonId,
+            traits: inferred,
+          });
+          addTrace(trace, 'memory', 'Updated memory traits from refinement run.');
+        } else {
+          addTrace(trace, 'memory', 'No new traits inferred from refinement run.');
+        }
+      }
+    } catch (err: any) {
+      addTrace(
+        trace,
+        'memory',
+        `Failed to update memory traits (refine): ${err?.message || String(err)}`
+      );
+    }
+
+    return {
+      finalSpeech,
+      drafts: null,
+      judge: null,
+      guardrail: null,
+      trace,
+    };
+  }
+
+  // --- GENERATE MODE (existing full pipeline) ---
 
   // --- Preparser ---
   let parsed: ParsedBrief | null = null;
